@@ -204,5 +204,34 @@ class PDFEngine:
 
             return png_bytes
 
+    def close_source(self, source_id: str):
+        """Release cached document and thumbnails for a closed document."""
+        with self._lock:
+            doc = self._doc_cache.pop(source_id, None)
+            if doc:
+                try:
+                    doc.close()
+                except Exception:
+                    pass
+            keys_to_del = [k for k in self._thumb_cache if k[0] == source_id]
+            for k in keys_to_del:
+                self._thumb_cache.pop(k, None)
+
+    def render_high_res_page(self, pdf_bytes: bytes, page_idx: int, rotation: int = 0) -> str:
+        """Render a single page at high resolution (e.g. 150 DPI) for the annotation editor."""
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        if page_idx < 0 or page_idx >= len(doc):
+            doc.close()
+            raise IndexError("Page index out of range")
+        
+        page = doc[page_idx]
+        if rotation != page.rotation:
+            page.set_rotation(rotation)
+            
+        pix = page.get_pixmap(dpi=150)
+        img_bytes = pix.tobytes(output="png")
+        doc.close()
+        return "data:image/png;base64," + base64.b64encode(img_bytes).decode("ascii")
+
     def list_working_dir_pdfs(self) -> List[Dict[str, Any]]:
         return []
