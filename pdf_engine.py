@@ -233,5 +233,78 @@ class PDFEngine:
         doc.close()
         return "data:image/png;base64," + base64.b64encode(img_bytes).decode("ascii")
 
-    def list_working_dir_pdfs(self) -> List[Dict[str, Any]]:
-        return []
+    def create_sample_documents(self) -> List[str]:
+        """
+        Generate two high quality sample PDFs in the working directory:
+        1. Sample_Report_Portrait.pdf (A4 Portrait, 3 pages)
+        2. Sample_Deck_Landscape.pdf (16:9 Landscape, 3 pages)
+        Allows instant testing of multiple PDFs with mixed orientations!
+        """
+        created = []
+        path1 = os.path.join(self.working_dir, "Sample_Report_Portrait.pdf")
+        doc1 = pymupdf.open()
+        titles1 = ["Executive Summary & Overview", "Statistical Findings & Analysis", "Recommendations & Next Steps"]
+        colors1 = [(0.1, 0.2, 0.4), (0.15, 0.35, 0.25), (0.35, 0.15, 0.25)]
+        
+        for i, (title, color) in enumerate(zip(titles1, colors1)):
+            p = doc1.new_page(width=595.28, height=841.89)
+            p.draw_rect(pymupdf.Rect(40, 40, 555.28, 85), color=color, fill=color)
+            p.insert_text(pymupdf.Point(55, 70), f"SAMPLE REPORT · A4 PORTRAIT · PAGE {i + 1}", fontsize=12, color=(1, 1, 1), fontname="hebo")
+            p.insert_text(pymupdf.Point(55, 130), title, fontsize=22, color=(0.1, 0.1, 0.1), fontname="hebo")
+            p.draw_line(pymupdf.Point(55, 145), pymupdf.Point(540, 145), color=(0.8, 0.8, 0.8), width=1.5)
+            
+            body_text = (
+                f"Page {i + 1} of Portrait Document.\n\n"
+                "Overview and specifications:\n"
+                "- Continuous multi-page workspace\n"
+                "- Orientation-preserving page extraction\n"
+                "- Blank page insertion matching neighbor geometry\n"
+                "- Precise text and image overlay positioning\n"
+                "- Lossless PDF document compilation"
+            )
+            p.insert_textbox(pymupdf.Rect(55, 165, 540, 450), body_text, fontsize=13, fontname="helv", color=(0.2, 0.2, 0.2))
+            p.draw_line(pymupdf.Point(55, 790), pymupdf.Point(540, 790), color=(0.85, 0.85, 0.85), width=1)
+            p.insert_text(pymupdf.Point(55, 808), "Document ID: SR-PORTRAIT-2026", fontsize=9, color=(0.5, 0.5, 0.5), fontname="helv")
+            p.insert_text(pymupdf.Point(500, 808), f"Page {i + 1} of 3", fontsize=9, color=(0.5, 0.5, 0.5), fontname="helv")
+
+        doc1.save(path1)
+        doc1.close()
+        created.append(path1)
+
+        path2 = os.path.join(self.working_dir, "Sample_Deck_Landscape.pdf")
+        doc2 = pymupdf.open()
+        titles2 = ["Q3 Machine Learning & Data Pipeline", "Model Architecture & Evaluation", "Production Deployment Metrics"]
+        
+        for i, title in enumerate(titles2):
+            p = doc2.new_page(width=841.89, height=595.28)
+            p.draw_rect(pymupdf.Rect(0, 0, 841.89, 8), color=(0.15, 0.38, 0.85), fill=(0.15, 0.38, 0.85))
+            p.insert_text(pymupdf.Point(50, 65), "SLIDE DECK · LANDSCAPE ORIENTATION (842 × 595 pt)", fontsize=11, color=(0.4, 0.4, 0.4), fontname="hebo")
+            p.insert_text(pymupdf.Point(50, 110), title, fontsize=24, color=(0.08, 0.12, 0.2), fontname="hebo")
+            p.draw_line(pymupdf.Point(50, 125), pymupdf.Point(790, 125), color=(0.88, 0.88, 0.88), width=1)
+
+            col1 = (
+                "Key Highlights:\n\n"
+                "- Continuous multi-PDF workspace\n"
+                "- Exact landscape aspect ratio preservation\n"
+                "- Inherited blank slide creation\n"
+                "- Drag and drop between mixed formats"
+            )
+            col2 = (
+                "Technical Verification:\n\n"
+                "- True PDF point measurements\n"
+                "- Lossless vector and raster extraction\n"
+                "- High-precision overlay coordinate mapping\n"
+                "- Standard PDF compliance"
+            )
+            p.insert_textbox(pymupdf.Rect(50, 150, 390, 480), col1, fontsize=13, fontname="helv", color=(0.25, 0.25, 0.25))
+            p.insert_textbox(pymupdf.Rect(430, 150, 780, 480), col2, fontsize=13, fontname="helv", color=(0.25, 0.25, 0.25))
+
+            p.draw_line(pymupdf.Point(50, 545), pymupdf.Point(790, 545), color=(0.88, 0.88, 0.88), width=1)
+            p.insert_text(pymupdf.Point(50, 565), "Confidential · ML Research Group", fontsize=9, color=(0.5, 0.5, 0.5), fontname="helv")
+            p.insert_text(pymupdf.Point(740, 565), f"Slide {i + 1} / 3", fontsize=9, color=(0.5, 0.5, 0.5), fontname="helv")
+
+        doc2.save(path2)
+        doc2.close()
+        created.append(path2)
+
+        return created
