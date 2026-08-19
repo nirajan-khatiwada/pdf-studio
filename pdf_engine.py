@@ -159,5 +159,50 @@ class PDFEngine:
             "bytes_b64": base64.b64encode(pdf_bytes).decode("ascii")
         }
 
+    def render_thumbnail_png(self, pdf_bytes: bytes, page_idx: int, source_id: Optional[str] = None) -> bytes:
+        """Render a single page thumbnail as raw PNG bytes with memory caching."""
+        cache_key = (source_id, page_idx) if source_id else None
+        if cache_key and cache_key in self._thumb_cache:
+            return self._thumb_cache[cache_key]
+
+        with self._lock:
+            if cache_key and cache_key in self._thumb_cache:
+                return self._thumb_cache[cache_key]
+
+            doc = None
+            should_close = False
+            if source_id and source_id in self._doc_cache:
+                doc = self._doc_cache[source_id]
+            else:
+                doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+                if source_id:
+                    self._doc_cache[source_id] = doc
+                else:
+                    should_close = True
+
+            if page_idx < 0 or page_idx >= len(doc):
+                if should_close:
+                    doc.close()
+                raise IndexError("Page index out of range")
+
+            page = doc[page_idx]
+            rect = page.rect
+            scale = 220.0 / max(rect.height, 1.0)
+            dpi = int(72 * max(scale, 0.4))
+            pix = page.get_pixmap(dpi=dpi)
+            png_bytes = pix.tobytes(output="png")
+
+            if should_close:
+                doc.close()
+
+            if cache_key:
+                if len(self._thumb_cache) > 2500:
+                    # Evict oldest entries
+                    for k in list(self._thumb_cache.keys())[:500]:
+                        self._thumb_cache.pop(k, None)
+                self._thumb_cache[cache_key] = png_bytes
+
+            return png_bytes
+
     def list_working_dir_pdfs(self) -> List[Dict[str, Any]]:
         return []
