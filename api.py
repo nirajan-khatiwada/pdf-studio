@@ -1,0 +1,186 @@
+"""
+API and HTTP Server for PDF Studio Desktop Application.
+Exposes endpoints for PDF loading, blank page generation, high-res rendering, and export.
+Serves static UI files and handles JSON API calls.
+"""
+
+import os
+import io
+import sys
+import json
+import base64
+import urllib.parse
+from http import HTTPStatus
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from typing import Dict, Any, Optional
+
+from pdf_engine import PDFEngine
+
+
+class RobustThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer that cleanly suppresses harmless client socket disconnects."""
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        exc_type, _, _ = sys.exc_info()
+        if exc_type in (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
+            return
+        super().handle_error(request, client_address)
+
+
+class PDFStudioAPI:
+    def __init__(self, working_dir: Optional[str] = None, pdf_dir: Optional[str] = None):
+        self.working_dir = working_dir or os.getcwd()
+        self.pdf_dir = pdf_dir or os.path.join(self.working_dir, "pdf")
+        os.makedirs(self.pdf_dir, exist_ok=True)
+        self.engine = PDFEngine(self.working_dir, pdf_dir=self.pdf_dir)
+        self.source_cache: Dict[str, bytes] = {}
+
+    def get_directory_tree(self, sub_path: Optional[str] = None) -> Dict[str, Any]:
+        return {"success": True, "items": []}
+class PDFStudioHTTPHandler(SimpleHTTPRequestHandler):
+    """HTTP Request Handler serving UI assets and JSON API."""
+    api_instance: Optional[PDFStudioAPI] = None
+    ui_dir: str = ""
+
+    def __init__(self, *args, **kwargs):
+        # Set directory for static file serving
+        super().__init__(*args, directory=self.ui_dir, **kwargs)
+
+    def end_headers(self):
+        # Enable CORS and caching headers for desktop local app
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        super().end_headers()
+
+    def do_OPTIONS(self):
+        self.send_response(HTTPStatus.OK)
+        self.end_headers()
+
+    def _send_json(self, data: Dict[str, Any], status=HTTPStatus.OK):
+        try:
+            content = json.dumps(data).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
+            pass
+
+    def _send_error_json(self, message: str, status=HTTPStatus.BAD_REQUEST):
+        try:
+            self._send_json({"success": False, "error": str(message)}, status=status)
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
+            pass
+
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+
+        if path == "/api/working_dir_pdfs":
+            try:
+                res = self.api_instance.get_working_dir_pdfs()
+                self._send_json(res)
+            except Exception as e:
+                self._send_error_json(str(e))
+            return
+
+        if path == "/api/directory_tree":
+            try:
+                query_params = urllib.parse.parse_qs(parsed.query)
+                sub_path = query_params.get("path", [None])[0]
+                res = self.api_instance.get_directory_tree(sub_path)
+                self._send_json(res)
+            except Exception as e:
+                self._send_error_json(str(e))
+            return
+
+        if path == "/api/thumbnail":
+            try:
+                query_params = urllib.parse.parse_qs(parsed.query)
+                source_id = query_params.get("sourceId", [None])[0]
+                page_index = int(query_params.get("pageIndex", [0])[0])
+
+                if not source_id or source_id not in self.api_instance.source_cache:
+                    self.send_error(HTTPStatus.NOT_FOUND, "Document source not found")
+                    return
+
+                png_bytes = self.api_instance.get_thumbnail_png(source_id, page_index)
+                if png_bytes is None:
+                    self.send_error(HTTPStatus.NOT_FOUND, "Thumbnail not available")
+                    return
+
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(png_bytes)))
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.end_headers()
+                self.wfile.write(png_bytes)
+            except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
+                pass
+            except Exception as e:
+                self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(e))
+            return
+
+
+        # Default: serve static files from ui_dir
+        super().do_GET()
+
+    def do_POST(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+
+        content_len = int(self.headers.get("Content-Length", 0))
+        post_data = self.rfile.read(content_len) if content_len > 0 else b"{}"
+
+        try:
+            body = json.loads(post_data.decode("utf-8")) if post_data else {}
+        except Exception:
+            body = {}
+
+        try:
+            if path == "/api/load_file":
+                filename = body.get("filePath") or body.get("fileName")
+                if not filename:
+                    return self._send_error_json("Missing filePath or fileName")
+                res = self.api_instance.load_pdf_file(filename)
+                return self._send_json(res)
+
+            elif path == "/api/upload_pdf":
+                filename = body.get("fileName", "Uploaded.pdf")
+                data_b64 = body.get("dataBase64", "")
+                if not data_b64:
+                    return self._send_error_json("Missing dataBase64")
+                res = self.api_instance.upload_pdf_bytes(filename, data_b64)
+                return self._send_json(res)
+
+            elif path == "/api/create_blank":
+                w = float(body.get("refWidth", 595.28))
+                h = float(body.get("refHeight", 841.89))
+                rot = int(body.get("refRotation", 0))
+                orient = body.get("refOrientation")
+                res = self.api_instance.create_blank_page(w, h, rot, orient)
+                return self._send_json(res)
+
+            elif path == "/api/high_res_page":
+                source_id = body.get("sourcePdfId")
+                page_idx = int(body.get("sourcePageIndex", 0))
+                rot = int(body.get("rotation", 0))
+                res = self.api_instance.get_high_res_page(source_id, page_idx, rot)
+                return self._send_json(res)
+
+            elif path == "/api/export":
+                manifest = body.get("manifest", [])
+                out_name = body.get("outputPath") or body.get("outputName")
+                custom_sources = body.get("sourceBytes")
+                res = self.api_instance.export_document(manifest, out_name, custom_sources)
+                return self._send_json(res)
+
+            else:
+                self._send_error_json("Endpoint not found", status=HTTPStatus.NOT_FOUND)
+
+        except Exception as e:
+            self._send_error_json(str(e), status=HTTPStatus.INTERNAL_SERVER_ERROR)
