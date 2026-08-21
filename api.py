@@ -29,6 +29,7 @@ class RobustThreadingHTTPServer(ThreadingHTTPServer):
 
 
 class PDFStudioAPI:
+    """Core API service interacting with PDFEngine and maintaining in-memory source cache."""
     def __init__(self, working_dir: Optional[str] = None, pdf_dir: Optional[str] = None):
         self.working_dir = working_dir or os.getcwd()
         self.pdf_dir = pdf_dir or os.path.join(self.working_dir, "pdf")
@@ -36,8 +37,64 @@ class PDFStudioAPI:
         self.engine = PDFEngine(self.working_dir, pdf_dir=self.pdf_dir)
         self.source_cache: Dict[str, bytes] = {}
 
+    def get_working_dir_pdfs(self) -> Dict[str, Any]:
+        pdfs = self.engine.list_working_dir_pdfs()
+        return {"success": True, "pdfs": pdfs, "working_dir": self.pdf_dir}
+
     def get_directory_tree(self, sub_path: Optional[str] = None) -> Dict[str, Any]:
-        return {"success": True, "items": []}
+        tree = self.engine.get_directory_tree(sub_path)
+        return {"success": True, **tree}
+
+    def load_pdf_file(self, file_path_or_name: str) -> Dict[str, Any]:
+        if not os.path.isabs(file_path_or_name):
+            # Check pdf_dir first
+            in_pdf_dir = os.path.join(self.pdf_dir, file_path_or_name)
+            if os.path.exists(in_pdf_dir):
+                file_path = in_pdf_dir
+            else:
+                file_path = os.path.join(self.working_dir, file_path_or_name)
+        else:
+            file_path = file_path_or_name
+
+        data = self.engine.load_pdf_from_file(file_path)
+        raw_bytes = data.pop("_raw_bytes", None)
+        if not raw_bytes and "bytes_b64" in data:
+            raw_bytes = base64.b64decode(data["bytes_b64"])
+        self.source_cache[data["source_id"]] = raw_bytes
+        # Avoid sending multi-megabyte base64 over HTTP JSON
+        data.pop("bytes_b64", None)
+        return {"success": True, "document": data}
+
+    def upload_pdf_bytes(self, file_name: str, data_base64: str) -> Dict[str, Any]:
+        if "," in data_base64:
+            data_base64 = data_base64.split(",", 1)[1]
+        pdf_bytes = base64.b64decode(data_base64)
+        
+        # Save uploaded file directly into the pdf/ directory
+        saved_path = os.path.join(self.pdf_dir, file_name)
+        with open(saved_path, "wb") as f:
+            f.write(pdf_bytes)
+
+        data = self.engine.load_pdf_from_bytes(pdf_bytes, file_name, file_path=saved_path)
+        self.source_cache[data["source_id"]] = pdf_bytes
+        data.pop("_raw_bytes", None)
+        data.pop("bytes_b64", None)
+        return {"success": True, "document": data}
+
+    def get_thumbnail_png(self, source_id: str, page_index: int) -> Optional[bytes]:
+        if source_id not in self.source_cache:
+            return None
+        pdf_bytes = self.source_cache[source_id]
+        return self.engine.render_thumbnail_png(pdf_bytes, page_index, source_id=source_id)
+
+    def get_high_res_page(self, source_id: str, page_index: int, rotation: int = 0) -> Dict[str, Any]:
+        if source_id not in self.source_cache:
+            return {"success": False, "error": f"Source document {source_id} not found in cache"}
+        
+        pdf_bytes = self.source_cache[source_id]
+        img_url = self.engine.render_high_res_page(pdf_bytes, page_index, rotation)
+        return {"success": True, "imageUrl": img_url}
+
 class PDFStudioHTTPHandler(SimpleHTTPRequestHandler):
     """HTTP Request Handler serving UI assets and JSON API."""
     api_instance: Optional[PDFStudioAPI] = None
