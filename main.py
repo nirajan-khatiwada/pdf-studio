@@ -96,10 +96,76 @@ def run_server(port: int, api: PDFStudioAPI, ui_dir: str):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="PDF Studio Desktop Application")
+    parser.add_argument("--port", type=int, default=8765, help="Port for the local server")
+    parser.add_argument("--server-only", action="store_true", help="Run in headless server mode without opening a desktop window")
+    parser.add_argument("--browser", action="store_true", help="Open in default system web browser")
+    args = parser.parse_args()
+
     base_dir = os.path.dirname(os.path.abspath(__file__))
     ui_dir = os.path.join(base_dir, "ui")
-    port = find_free_port()
-    run_server(port, PDFStudioAPI(), ui_dir)
+    os.makedirs(ui_dir, exist_ok=True)
+
+    pdf_dir = os.path.join(base_dir, "pdf")
+    os.makedirs(pdf_dir, exist_ok=True)
+    api = PDFStudioAPI(working_dir=base_dir, pdf_dir=pdf_dir)
+
+    port = find_free_port(args.port)
+    url = f"http://127.0.0.1:{port}"
+
+    if args.server_only:
+        print(f"PDF Studio desktop backend active at: {url}")
+        print("Running in server-only mode. Press Ctrl+C to stop.")
+        try:
+            run_server(port, api, ui_dir)
+        except KeyboardInterrupt:
+            print("\nShutting down.")
+        return
+
+    server_thread = threading.Thread(target=run_server, args=(port, api, ui_dir), daemon=True)
+    server_thread.start()
+
+    print(f"PDF Studio desktop backend active at: {url}")
+
+    if args.browser:
+        print("Opening in system web browser...")
+        webbrowser.open(url)
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\nShutting down.")
+        return
+
+    # Native Desktop Application Mode using pywebview
+    window_ref = [None]
+    bridge = DesktopBridge(api, lambda: window_ref[0])
+
+    try:
+        import webview
+        print("Launching native Windows desktop window...")
+        window = webview.create_window(
+            title="PDF Studio — Document Page Management & Editor",
+            url=url,
+            js_api=bridge,
+            width=1340,
+            height=860,
+            min_size=(960, 600),
+            background_color="#FFFFFF"
+        )
+        window_ref[0] = window
+        # Use Edge Chromium for modern HTML5, Canvas, and drag-and-drop
+        webview.start(gui="edgechromium", debug=False)
+    except Exception as err:
+        print(f"Native desktop window startup fallback: {err}")
+        print(f"Opening browser at: {url}")
+        webbrowser.open(url)
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
+
 
 if __name__ == "__main__":
     main()

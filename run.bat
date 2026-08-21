@@ -1,4 +1,9 @@
 @echo off
-echo Starting PDF Studio...
+title PDF Studio Desktop
+echo Starting PDF Studio Desktop Application...
 python main.py
-pause
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo Application exited with error code %ERRORLEVEL%.
+    pause
+)
