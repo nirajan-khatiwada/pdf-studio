@@ -109,7 +109,115 @@ document.addEventListener('DOMContentLoaded', () => {
 function createPageSlot(page, index) {
   const slot = document.createElement('div');
   slot.className = 'page-slot';
+  slot.dataset.index = index;
+  const card = document.createElement('div');
+  card.className = 'page-card';
+  card.dataset.id = page.id;
+  
+  const thumbBox = document.createElement('div');
+  thumbBox.className = 'card-thumbnail-box';
+  const img = document.createElement('img');
+  img.src = page.thumbnail;
+  thumbBox.appendChild(img);
+  card.appendChild(thumbBox);
+  slot.appendChild(card);
   return slot;
 }
-function renderWorkspace() {}
-function showToast(msg, type='info') { console.log(msg); }
+function renderWorkspace() {
+  currentRenderSequence++;
+  const thisToken = currentRenderSequence;
+
+  updateSidebarUploadedDocuments();
+
+  if (state.pages.length === 0) {
+    els.emptyState.style.display = 'block';
+    els.pageGrid.style.display = 'none';
+    els.docTitleDisplay.textContent = 'Empty Document';
+    if (els.btnToggleRemovePages) els.btnToggleRemovePages.disabled = true;
+    updateStatus();
+    return;
+  }
+
+  if (els.btnToggleRemovePages) els.btnToggleRemovePages.disabled = false;
+  els.emptyState.style.display = 'none';
+  els.pageGrid.style.display = 'flex';
+  els.docTitleDisplay.textContent = `Document (${state.pages.length} pages)`;
+
+  els.pageGrid.innerHTML = '';
+
+  // Mount initial batch immediately (first 36 pages for instant view)
+  const initialLimit = Math.min(36, state.pages.length);
+  const initialFrag = document.createDocumentFragment();
+  for (let i = 0; i < initialLimit; i++) {
+    initialFrag.appendChild(createPageSlot(state.pages[i], i));
+  }
+  els.pageGrid.appendChild(initialFrag);
+
+  // Stream remainder progressively in chunks of 48 via requestAnimationFrame
+  if (state.pages.length > initialLimit) {
+    let nextIndex = initialLimit;
+    function appendNextBatch() {
+      if (thisToken !== currentRenderSequence) return;
+      if (nextIndex >= state.pages.length) return;
+
+      const frag = document.createDocumentFragment();
+      const chunkEnd = Math.min(nextIndex + 48, state.pages.length);
+      for (let i = nextIndex; i < chunkEnd; i++) {
+        frag.appendChild(createPageSlot(state.pages[i], i));
+      }
+      els.pageGrid.appendChild(frag);
+      nextIndex = chunkEnd;
+
+      if (nextIndex < state.pages.length) {
+        requestAnimationFrame(appendNextBatch);
+      }
+    }
+    requestAnimationFrame(appendNextBatch);
+  }
+
+  updateStatus();
+}
+
+function setZoom(newZoom) {
+  state.zoom = Math.max(0.6, Math.min(1.5, Math.round(newZoom * 10) / 10));
+  els.zoomLevelDisplay.textContent = `${Math.round(state.zoom * 100)}%`;
+  renderWorkspace();
+}
+
+function updateStatus() {
+  const total = state.pages.length;
+  let portraits = 0;
+  let landscapes = 0;
+  state.pages.forEach(p => {
+    if (p.orientation === 'Landscape') landscapes++;
+    else portraits++;
+  });
+
+  els.statusPageCount.textContent = `${total} pages (${portraits} Portrait, ${landscapes} Landscape)`;
+  const sourceCount = Object.keys(state.sourcePdfs).length;
+  els.statusSourceCount.textContent = `${sourceCount} document${sourceCount === 1 ? '' : 's'}`;
+
+  const selIdx = state.pages.findIndex(p => p.id === state.selectedPageId);
+  if (selIdx !== -1) {
+    const p = state.pages[selIdx];
+    els.statusSelectedInfo.textContent = `Page ${selIdx + 1}: ${p.orientation} (${Math.round(p.effective_width)} × ${Math.round(p.effective_height)} pt)`;
+  } else {
+    els.statusSelectedInfo.textContent = 'No page selected';
+  }
+}
+
+// Page Annotation Dialog (Text & Images)
+function showToast(message, type = 'info') {
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  els.toastContainer.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(8px)';
+    toast.style.transition = 'all 0.15s ease';
+    setTimeout(() => toast.remove(), 180);
+  }, 3000);
+}
+
