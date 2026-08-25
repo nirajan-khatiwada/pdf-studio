@@ -120,6 +120,12 @@ function createPageSlot(page, index) {
   img.src = page.thumbnail;
   thumbBox.appendChild(img);
   card.appendChild(thumbBox);
+
+  const footer = document.createElement('div');
+  footer.className = 'card-footer';
+  footer.innerHTML = `<span class="page-num">${index + 1}</span><span class="page-meta">${page.orientation} · ${Math.round(page.effective_width)}×${Math.round(page.effective_height)} pt</span>`;
+  card.appendChild(footer);
+
   slot.appendChild(card);
   return slot;
 }
