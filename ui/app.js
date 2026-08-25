@@ -111,7 +111,7 @@ function createPageSlot(page, index) {
   slot.className = 'page-slot';
   slot.dataset.index = index;
   const card = document.createElement('div');
-  card.className = 'page-card';
+  card.className = 'page-card' + (state.selectedPageId === page.id ? ' selected' : '');
   card.dataset.id = page.id;
   
   const thumbBox = document.createElement('div');
@@ -125,6 +125,12 @@ function createPageSlot(page, index) {
   footer.className = 'card-footer';
   footer.innerHTML = `<span class="page-num">${index + 1}</span><span class="page-meta">${page.orientation} · ${Math.round(page.effective_width)}×${Math.round(page.effective_height)} pt</span>`;
   card.appendChild(footer);
+
+  card.addEventListener('click', () => {
+    state.selectedPageId = page.id;
+    updateStatus();
+    renderWorkspace();
+  });
 
   slot.appendChild(card);
   return slot;

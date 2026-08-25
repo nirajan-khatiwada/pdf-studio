@@ -288,3 +288,8 @@ body.is-reordering-cards .page-card:hover {
   transform: scale(0.98);
 }
 
+/* Card Selection */
+.page-card.selected {
+  border-color: #f43f5e;
+  box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.2);
+}
