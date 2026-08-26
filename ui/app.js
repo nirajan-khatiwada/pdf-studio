@@ -106,6 +106,78 @@ document.addEventListener('DOMContentLoaded', () => {
   updateStatus();
 });
 
+function initEventListeners() {
+  // Sidebar Toggle
+  els.btnToggleSidebar.addEventListener('click', () => {
+    state.sidebarOpen = !state.sidebarOpen;
+    els.sidebar.classList.toggle('collapsed', !state.sidebarOpen);
+  });
+
+  els.btnRefreshTree.addEventListener('click', loadDirectoryTree);
+
+  els.sectionToggleUploaded.addEventListener('click', () => {
+    els.sectionToggleUploaded.classList.toggle('collapsed');
+  });
+
+  els.sectionToggleTree.addEventListener('click', () => {
+    els.sectionToggleTree.classList.toggle('collapsed');
+  });
+
+  // Toolbar
+  els.btnOpenPdf.addEventListener('click', handleOpenPdfClick);
+  els.btnEmptyOpen.addEventListener('click', handleOpenPdfClick);
+  els.pdfFileInput.addEventListener('change', handleFileInputChange);
+
+  els.btnAddBlankPage.addEventListener('click', () => {
+    const idx = getSelectedOrLastPageIndex();
+    addBlankPage(idx);
+  });
+
+  els.btnRotatePage.addEventListener('click', () => {
+    const idx = getSelectedOrLastPageIndex();
+    if (idx !== -1) rotatePage(idx, 90);
+  });
+
+  // Remove Pages By Range/Number Popover & Actions
+  if (els.btnToggleRemovePages) {
+    els.btnToggleRemovePages.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleRemovePagesPopover();
+    });
+  }
+
+  if (els.btnCloseRemovePagesPopover) {
+    els.btnCloseRemovePagesPopover.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeRemovePagesPopover();
+    });
+  }
+
+  if (els.btnCancelRemovePages) {
+    els.btnCancelRemovePages.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeRemovePagesPopover();
+    });
+  }
+
+  if (els.inputRemovePages) {
+    els.inputRemovePages.addEventListener('input', handleRemovePagesInput);
+    els.inputRemovePages.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        executeRemovePages();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeRemovePagesPopover();
+      }
+    });
+  }
+
+  if (els.btnExecuteRemovePages) {
+    els.btnExecuteRemovePages.addEventListener('click', (e) => {
+      e.stopPropagation();
+      executeRemovePages();
+    });
 function createPageSlot(page, index) {
   const slot = document.createElement('div');
   slot.className = 'page-slot';
