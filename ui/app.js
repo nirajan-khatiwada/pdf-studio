@@ -178,6 +178,53 @@ function initEventListeners() {
       e.stopPropagation();
       executeRemovePages();
     });
+function rotatePage(index, degrees) {
+  if (index < 0 || index >= state.pages.length) return;
+  saveHistory();
+  const page = state.pages[index];
+  page.rotation = (page.rotation + degrees) % 360;
+  if (page.rotation === 90 || page.rotation === 270) {
+    page.effective_width = page.height;
+    page.effective_height = page.width;
+  } else {
+    page.effective_width = page.width;
+    page.effective_height = page.height;
+  }
+  page.orientation = page.effective_width > page.effective_height ? "Landscape" : "Portrait";
+
+  const slot = els.pageGrid.children[index];
+  if (slot) {
+    const img = slot.querySelector('.card-thumbnail-box img');
+    if (img) {
+      img.style.transform = `rotate(${page.rotation}deg)`;
+    }
+    const metaEl = slot.querySelector('.card-meta-text');
+    if (metaEl) {
+      metaEl.textContent = `${page.orientation} · ${Math.round(page.effective_width)}×${Math.round(page.effective_height)} pt`;
+    }
+    const gutterBtn = slot.querySelector('.gutter-add-btn');
+    if (gutterBtn) {
+      gutterBtn.title = `Insert blank ${page.orientation} page after Page ${index + 1}`;
+    }
+    updateStatus();
+  } else {
+    renderWorkspace();
+  }
+
+  showToast(`Rotated Page ${index + 1} to ${page.rotation}°`);
+}
+
+function getSelectedOrLastPageIndex() {
+  if (state.pages.length === 0) return -1;
+  if (!state.selectedPageId) return state.pages.length - 1;
+  const idx = state.pages.findIndex(p => p.id === state.selectedPageId);
+  return idx !== -1 ? idx : state.pages.length - 1;
+}
+
+// Single Global Floating Insertion Indicator
+let lastIndicatedSlot = null;
+let lastIndicatedSide = null;
+
 function createPageSlot(page, index) {
   const slot = document.createElement('div');
   slot.className = 'page-slot';
