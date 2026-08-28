@@ -288,8 +288,55 @@ body.is-reordering-cards .page-card:hover {
   transform: scale(0.98);
 }
 
-/* Card Selection */
-.page-card.selected {
-  border-color: #f43f5e;
-  box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.2);
+/* Card Action Bar (Rotate, Annotate, Delete) */
+.card-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 5px;
+  z-index: 10;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
 }
+
+.page-card:hover .card-actions,
+.page-card.selected .card-actions {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.action-pill {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #52525b;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: background-color 0.12s ease, color 0.12s ease, transform 0.12s ease;
+}
+
+.action-pill.rotate:hover {
+  color: #ea580c;
+  background: #fff7ed;
+  border-color: #fdba74;
+}
+
+.action-pill.edit:hover {
+  color: #2563eb;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.action-pill.danger:hover {
+  background: #fef2f2;
+  color: #ef4444;
+  border-color: #fecaca;
+}
+
