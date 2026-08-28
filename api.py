@@ -95,6 +95,21 @@ class PDFStudioAPI:
         img_url = self.engine.render_high_res_page(pdf_bytes, page_index, rotation)
         return {"success": True, "imageUrl": img_url}
 
+    def create_blank_page(
+        self,
+        ref_width: float = 595.28,
+        ref_height: float = 841.89,
+        ref_rotation: int = 0,
+        ref_orientation: Optional[str] = None
+    ) -> Dict[str, Any]:
+        blank_info = self.engine.create_blank_page_info(
+            ref_width=ref_width,
+            ref_height=ref_height,
+            ref_rotation=ref_rotation,
+            ref_orientation=ref_orientation
+        )
+        return {"success": True, "page": blank_info}
+
 class PDFStudioHTTPHandler(SimpleHTTPRequestHandler):
     """HTTP Request Handler serving UI assets and JSON API."""
     api_instance: Optional[PDFStudioAPI] = None

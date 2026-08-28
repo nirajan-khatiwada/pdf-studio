@@ -233,6 +233,57 @@ class PDFEngine:
         doc.close()
         return "data:image/png;base64," + base64.b64encode(img_bytes).decode("ascii")
 
+    def create_blank_page_info(
+        self,
+        ref_width: float = 595.28,
+        ref_height: float = 841.89,
+        ref_rotation: int = 0,
+        ref_orientation: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Create a blank page that inherits the neighbor page's orientation and dimensions.
+        Standard default is A4 Portrait (595.28 x 841.89 pt).
+        """
+        width = float(ref_width)
+        height = float(ref_height)
+        rotation = int(ref_rotation) % 360
+
+        if ref_orientation == "Landscape" and width < height:
+            width, height = height, width
+        elif ref_orientation == "Portrait" and width > height:
+            width, height = height, width
+
+        if rotation in (90, 270):
+            eff_w, eff_h = height, width
+        else:
+            eff_w, eff_h = width, height
+
+        orientation_name = "Landscape" if eff_w > eff_h else "Portrait"
+
+        # Generate a clean blank white thumbnail with matching aspect ratio
+        thumb_doc = pymupdf.open()
+        blank_p = thumb_doc.new_page(width=eff_w, height=eff_h)
+        blank_p.draw_rect(pymupdf.Rect(0, 0, eff_w, eff_h), color=(0.95, 0.95, 0.95), fill=(1.0, 1.0, 1.0))
+        pix = blank_p.get_pixmap(dpi=72)
+        thumb_b64 = "data:image/png;base64," + base64.b64encode(pix.tobytes("png")).decode("ascii")
+        thumb_doc.close()
+
+        return {
+            "id": f"blank_{uuid.uuid4().hex[:8]}",
+            "source_pdf_id": "blank",
+            "source_pdf_name": "Blank Page",
+            "source_page_index": -1,
+            "width": round(width, 2),
+            "height": round(height, 2),
+            "rotation": rotation,
+            "effective_width": round(eff_w, 2),
+            "effective_height": round(eff_h, 2),
+            "orientation": orientation_name,
+            "is_blank": True,
+            "thumbnail": thumb_b64,
+            "overlays": [],
+        }
+
     def create_sample_documents(self) -> List[str]:
         """
         Generate two high quality sample PDFs in the working directory:
