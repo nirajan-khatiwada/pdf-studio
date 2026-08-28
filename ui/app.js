@@ -178,6 +178,90 @@ function initEventListeners() {
       e.stopPropagation();
       executeRemovePages();
     });
+async function addBlankPage(afterIndex = null) {
+  saveHistory();
+  let refWidth = 595.28;
+  let refHeight = 841.89;
+  let refRotation = 0;
+  let refOrientation = "Portrait";
+
+  let insertPos = state.pages.length;
+
+  if (afterIndex !== null && afterIndex >= 0 && afterIndex < state.pages.length) {
+    const refPage = state.pages[afterIndex];
+    refWidth = refPage.width;
+    refHeight = refPage.height;
+    refRotation = refPage.rotation;
+    refOrientation = refPage.orientation;
+    insertPos = afterIndex + 1;
+  }
+
+  try {
+    const res = await fetch('/api/create_blank', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        refWidth,
+        refHeight,
+        refRotation,
+        refOrientation
+      })
+    });
+    const data = await res.json();
+    if (data.success && data.page) {
+      state.pages.splice(insertPos, 0, data.page);
+      state.selectedPageId = data.page.id;
+      renderWorkspace();
+      showToast(`Inserted blank ${refOrientation} page`, 'success');
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, 'error');
+  }
+}
+
+// Remove and Rotate
+function removePage(index) {
+  if (index < 0 || index >= state.pages.length) return;
+  saveHistory();
+  const removed = state.pages.splice(index, 1)[0];
+  if (state.selectedPageId === removed.id) {
+    state.selectedPageId = state.pages[index] ? state.pages[index].id : (state.pages[index - 1] ? state.pages[index - 1].id : null);
+  }
+
+  if (state.pages.length === 0) {
+    renderWorkspace();
+    showToast(`Removed Page ${index + 1}`);
+    return;
+  }
+
+  const slot = els.pageGrid.children[index];
+  if (slot) {
+    slot.remove();
+    // Re-index subsequent slots
+    for (let i = index; i < els.pageGrid.children.length; i++) {
+      const s = els.pageGrid.children[i];
+      s.dataset.index = i;
+      const c = s.querySelector('.page-card');
+      if (c) {
+        c.dataset.index = i;
+        const num = c.querySelector('.card-page-num');
+        if (num) num.textContent = i + 1;
+      }
+      const gutterBtn = s.querySelector('.gutter-add-btn');
+      if (gutterBtn && state.pages[i]) {
+        gutterBtn.title = `Insert blank ${state.pages[i].orientation} page after Page ${i + 1}`;
+      }
+    }
+    els.docTitleDisplay.textContent = `Document (${state.pages.length} pages)`;
+    updateSidebarUploadedDocuments();
+    updateStatus();
+  } else {
+    renderWorkspace();
+  }
+  showToast(`Removed Page ${index + 1}`);
+}
+
+// Remove Pages By Page Number and Range (start-end) with Live Blur
 function rotatePage(index, degrees) {
   if (index < 0 || index >= state.pages.length) return;
   saveHistory();
@@ -233,6 +317,19 @@ function createPageSlot(page, index) {
   card.className = 'page-card' + (state.selectedPageId === page.id ? ' selected' : '');
   card.dataset.id = page.id;
   
+  const actions = document.createElement('div');
+  actions.className = 'card-actions';
+  const rotBtn = document.createElement('button');
+  rotBtn.className = 'card-action-btn';
+  rotBtn.title = 'Rotate 90° clockwise';
+  rotBtn.innerHTML = '⟳';
+  rotBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    rotatePage(index, 90);
+  });
+  actions.appendChild(rotBtn);
+  card.appendChild(actions);
+
   const thumbBox = document.createElement('div');
   thumbBox.className = 'card-thumbnail-box';
   const img = document.createElement('img');
@@ -244,12 +341,6 @@ function createPageSlot(page, index) {
   footer.className = 'card-footer';
   footer.innerHTML = `<span class="page-num">${index + 1}</span><span class="page-meta">${page.orientation} · ${Math.round(page.effective_width)}×${Math.round(page.effective_height)} pt</span>`;
   card.appendChild(footer);
-
-  card.addEventListener('click', () => {
-    state.selectedPageId = page.id;
-    updateStatus();
-    renderWorkspace();
-  });
 
   slot.appendChild(card);
   return slot;
