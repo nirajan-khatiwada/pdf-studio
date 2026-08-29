@@ -313,48 +313,203 @@ function createPageSlot(page, index) {
   const slot = document.createElement('div');
   slot.className = 'page-slot';
   slot.dataset.index = index;
+
   const card = document.createElement('div');
-  card.className = 'page-card' + (state.selectedPageId === page.id ? ' selected' : '');
+  card.className = `page-card ${page.id === state.selectedPageId ? 'selected' : ''}`;
+  card.draggable = true;
+  card.dataset.index = index;
   card.dataset.id = page.id;
-  
+
+  const baseWidth = 220;
+  card.style.width = `${Math.round(baseWidth * state.zoom)}px`;
+
+  // Action Bar on Hover (Rotate, Annotate, Delete)
   const actions = document.createElement('div');
   actions.className = 'card-actions';
-  const rotBtn = document.createElement('button');
-  rotBtn.className = 'card-action-btn';
-  rotBtn.title = 'Rotate 90° clockwise';
-  rotBtn.innerHTML = '⟳';
-  rotBtn.addEventListener('click', (e) => {
+
+  const rotateBtn = document.createElement('button');
+  rotateBtn.className = 'action-pill rotate';
+  rotateBtn.title = 'Rotate 90° clockwise';
+  rotateBtn.draggable = false;
+  rotateBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>';
+  rotateBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    rotatePage(index, 90);
+    const curIdx = parseInt(slot.dataset.index, 10);
+    rotatePage(curIdx, 90);
   });
-  actions.appendChild(rotBtn);
+
+  const editBtn = document.createElement('button');
+  editBtn.className = 'action-pill edit';
+  editBtn.title = 'Add text or images';
+  editBtn.draggable = false;
+  editBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+  editBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openAnnotationDialog(page.id);
+  });
+
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'action-pill danger';
+  removeBtn.title = 'Remove page';
+  removeBtn.draggable = false;
+  removeBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+  removeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const curIdx = parseInt(slot.dataset.index, 10);
+    removePage(curIdx);
+  });
+
+  actions.appendChild(rotateBtn);
+  actions.appendChild(editBtn);
+  actions.appendChild(removeBtn);
   card.appendChild(actions);
 
+  // Thumbnail Area
   const thumbBox = document.createElement('div');
   thumbBox.className = 'card-thumbnail-box';
+  thumbBox.style.height = `${Math.round(240 * state.zoom)}px`;
+
+  const imgWrapper = document.createElement('div');
+  imgWrapper.style.position = 'relative';
+  imgWrapper.style.display = 'flex';
+  imgWrapper.style.alignItems = 'center';
+  imgWrapper.style.justifyContent = 'center';
+  imgWrapper.style.maxWidth = '100%';
+  imgWrapper.style.maxHeight = '100%';
+  imgWrapper.style.pointerEvents = 'none';
+
   const img = document.createElement('img');
   img.src = page.thumbnail;
-  thumbBox.appendChild(img);
+  img.loading = 'lazy';
+  img.decoding = 'async';
+  img.alt = `Page ${index + 1}`;
+  img.draggable = false;
+  img.setAttribute('draggable', 'false');
+  img.style.userSelect = 'none';
+  img.style.webkitUserDrag = 'none';
+  if (page.rotation !== 0) {
+    img.style.transform = `rotate(${page.rotation}deg)`;
+  }
+  imgWrapper.appendChild(img);
+
+  // Badge showing count of overlays if present
+  if (page.overlays && page.overlays.length > 0) {
+    const ovBadge = document.createElement('div');
+    ovBadge.style.cssText = 'position: absolute; bottom: 4px; right: 4px; background: #09090b; color: #fff; font-size: 9.5px; padding: 2px 5px; border-radius: 3px; font-weight: 500; display: flex; align-items: center; gap: 3px; pointer-events: none;';
+    ovBadge.innerHTML = `<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> ${page.overlays.length}`;
+    imgWrapper.appendChild(ovBadge);
+  }
+
+  thumbBox.appendChild(imgWrapper);
   card.appendChild(thumbBox);
 
+  // Minimal Card Footer
   const footer = document.createElement('div');
   footer.className = 'card-footer';
-  footer.innerHTML = `<span class="page-num">${index + 1}</span><span class="page-meta">${page.orientation} · ${Math.round(page.effective_width)}×${Math.round(page.effective_height)} pt</span>`;
+  footer.innerHTML = `
+    <span class="card-page-num">${index + 1}</span>
+    <span class="card-meta-text">${page.orientation} · ${Math.round(page.effective_width)}×${Math.round(page.effective_height)} pt</span>
+  `;
   card.appendChild(footer);
 
+  card.title = "Click to select · Double-click to open page";
+  thumbBox.title = "Double-click to open page in editor";
+
+  // Click Selection with High-Precision Double-Click Trigger
+  card.addEventListener('click', (e) => {
+    if (e.target.closest('.action-pill') || e.target.closest('.gutter-add-btn')) return;
+
+    state.selectedPageId = page.id;
+    document.querySelectorAll('.page-card').forEach(c => c.classList.remove('selected'));
+    card.classList.add('selected');
+    updateStatus();
+
+    const now = Date.now();
+    const timeDiff = now - lastPageClickTime;
+    if (lastPageClickPageId === page.id && timeDiff < 420 && timeDiff > 30) {
+      lastPageClickTime = 0;
+      lastPageClickPageId = null;
+      openAnnotationDialog(page.id);
+      return;
+    }
+    lastPageClickTime = now;
+    lastPageClickPageId = page.id;
+  });
+
+  // Direct Double-Click Listeners (on card and slot)
+  const onSlotDblClick = (e) => {
+    if (e.target.closest('.action-pill') || e.target.closest('.gutter-add-btn')) return;
+    openAnnotationDialog(page.id);
+  };
+  card.addEventListener('dblclick', onSlotDblClick);
+  slot.addEventListener('dblclick', onSlotDblClick);
+
+  // Gutter (+) Add Blank Page Button
   const gutterBtn = document.createElement('button');
   gutterBtn.className = 'gutter-add-btn';
-  gutterBtn.title = 'Add blank page after this page';
-  gutterBtn.innerHTML = '+';
+  gutterBtn.title = `Insert blank ${page.orientation} page after Page ${index + 1}`;
+  gutterBtn.draggable = false;
+  gutterBtn.innerHTML = `
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="#71717a" stroke-width="1.8" fill="#ffffff"/>
+      <polyline points="14 2 14 8 20 8" stroke="#71717a" stroke-width="1.8"/>
+      <circle cx="16.5" cy="16.5" r="5" fill="#f43f5e" stroke="#ffffff" stroke-width="1.2"/>
+      <line x1="16.5" y1="14.2" x2="16.5" y2="18.8" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
+      <line x1="14.2" y1="16.5" x2="18.8" y2="16.5" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
+    </svg>
+  `;
   gutterBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    addBlankPage(index + 1);
+    const curIdx = parseInt(slot.dataset.index, 10);
+    addBlankPage(curIdx);
+  });
+
+  // Butter-Smooth Drag Initiation
+  card.addEventListener('dragstart', (e) => {
+    const curIdx = parseInt(slot.dataset.index, 10);
+    draggedPageIndex = curIdx;
+    isDraggingCard = true;
+    card.classList.add('dragging');
+    document.body.classList.add('is-reordering-cards');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('application/x-page-card', String(curIdx));
+    e.dataTransfer.setData('text/plain', String(curIdx));
+
+    // Featherlight ghost badge: eliminates browser freeze snapshotting complex DOM
+    const ghost = document.createElement('div');
+    ghost.className = 'drag-ghost-chip';
+    ghost.innerHTML = `
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <span>Page ${curIdx + 1}</span>
+    `;
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 24, 16);
+    requestAnimationFrame(() => ghost.remove());
+
+    if (els.dropOverlay && els.dropOverlay.classList.contains('active')) {
+      els.dropOverlay.classList.remove('active');
+    }
+  });
+
+  card.addEventListener('dragend', () => {
+    card.classList.remove('dragging');
+    document.body.classList.remove('is-reordering-cards');
+    draggedPageIndex = null;
+    isDraggingCard = false;
+    stopAutoScroll();
+    hideFloatingDropIndicator();
+    if (els.dropOverlay && els.dropOverlay.classList.contains('active')) {
+      els.dropOverlay.classList.remove('active');
+    }
   });
 
   slot.appendChild(card);
   slot.appendChild(gutterBtn);
+
   return slot;
 }
+
+// Progressive Chunk Workspace Rendering
 function renderWorkspace() {
   currentRenderSequence++;
   const thisToken = currentRenderSequence;
