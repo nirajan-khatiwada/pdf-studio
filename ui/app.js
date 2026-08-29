@@ -342,7 +342,17 @@ function createPageSlot(page, index) {
   footer.innerHTML = `<span class="page-num">${index + 1}</span><span class="page-meta">${page.orientation} · ${Math.round(page.effective_width)}×${Math.round(page.effective_height)} pt</span>`;
   card.appendChild(footer);
 
+  const gutterBtn = document.createElement('button');
+  gutterBtn.className = 'gutter-add-btn';
+  gutterBtn.title = 'Add blank page after this page';
+  gutterBtn.innerHTML = '+';
+  gutterBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    addBlankPage(index + 1);
+  });
+
   slot.appendChild(card);
+  slot.appendChild(gutterBtn);
   return slot;
 }
 function renderWorkspace() {
