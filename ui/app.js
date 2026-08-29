@@ -309,6 +309,47 @@ function getSelectedOrLastPageIndex() {
 let lastIndicatedSlot = null;
 let lastIndicatedSide = null;
 
+function movePageCardInDOM(fromIndex, toIndex) {
+  if (fromIndex === toIndex) return;
+  const slots = els.pageGrid.children;
+  const draggedSlot = slots[fromIndex];
+  if (!draggedSlot || !slots[toIndex]) {
+    renderWorkspace();
+    return;
+  }
+
+  if (toIndex >= slots.length - 1) {
+    els.pageGrid.appendChild(draggedSlot);
+  } else if (fromIndex < toIndex) {
+    els.pageGrid.insertBefore(draggedSlot, slots[toIndex + 1]);
+  } else {
+    els.pageGrid.insertBefore(draggedSlot, slots[toIndex]);
+  }
+
+  // Re-index only the affected range between min and max
+  const minIdx = Math.min(fromIndex, toIndex);
+  const maxIdx = Math.max(fromIndex, toIndex);
+  for (let i = minIdx; i <= maxIdx; i++) {
+    const slotEl = els.pageGrid.children[i];
+    if (slotEl) {
+      slotEl.dataset.index = i;
+      const cardEl = slotEl.querySelector('.page-card');
+      if (cardEl) {
+        cardEl.dataset.index = i;
+        const pageNumEl = cardEl.querySelector('.card-page-num');
+        if (pageNumEl) pageNumEl.textContent = i + 1;
+      }
+      const gutterBtn = slotEl.querySelector('.gutter-add-btn');
+      if (gutterBtn && state.pages[i]) {
+        gutterBtn.title = `Insert blank ${state.pages[i].orientation} page after Page ${i + 1}`;
+      }
+    }
+  }
+
+  updateStatus();
+}
+
+// Modular page slot builder with butter-smooth drag handles and zero per-slot overhead
 function createPageSlot(page, index) {
   const slot = document.createElement('div');
   slot.className = 'page-slot';
