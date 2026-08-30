@@ -309,6 +309,56 @@ function getSelectedOrLastPageIndex() {
 let lastIndicatedSlot = null;
 let lastIndicatedSide = null;
 
+function startAutoScrollLoop() {
+  if (autoScrollRaf !== null) return;
+  function step() {
+    if (autoScrollSpeed !== 0 && els.workspaceScroll) {
+      els.workspaceScroll.scrollTop += autoScrollSpeed;
+      autoScrollRaf = requestAnimationFrame(step);
+    } else {
+      autoScrollRaf = null;
+    }
+  }
+  autoScrollRaf = requestAnimationFrame(step);
+}
+
+function stopAutoScroll() {
+  if (autoScrollRaf !== null) {
+    cancelAnimationFrame(autoScrollRaf);
+    autoScrollRaf = null;
+  }
+  autoScrollSpeed = 0;
+}
+
+function updateAutoScroll(clientY) {
+  if (draggedPageIndex === null || !els.workspaceScroll) {
+    stopAutoScroll();
+    return;
+  }
+
+  const rect = els.workspaceScroll.getBoundingClientRect();
+  const edgeZone = 120;
+
+  if (clientY < rect.top + edgeZone) {
+    // Continuous upward auto-scroll (e.g. from Page 100 towards Page 1)
+    // Non-linear acceleration up to 58 px/frame (~3,500 px/sec) even if cursor moves into toolbar
+    const distance = (rect.top + edgeZone) - clientY;
+    const ratio = Math.min(1.8, Math.max(0.15, distance / edgeZone));
+    autoScrollSpeed = -Math.round(8 + ratio * 28);
+    startAutoScrollLoop();
+  } else if (clientY > rect.bottom - edgeZone) {
+    // Continuous downward auto-scroll
+    const distance = clientY - (rect.bottom - edgeZone);
+    const ratio = Math.min(1.8, Math.max(0.15, distance / edgeZone));
+    autoScrollSpeed = Math.round(8 + ratio * 28);
+    startAutoScrollLoop();
+  } else {
+    autoScrollSpeed = 0;
+    stopAutoScroll();
+  }
+}
+
+// Instant in-place DOM reordering (<0.5ms) without rebuilding the page grid
 function movePageCardInDOM(fromIndex, toIndex) {
   if (fromIndex === toIndex) return;
   const slots = els.pageGrid.children;
