@@ -197,6 +197,37 @@ function clonePageState(pages) {
 }
 
 // History
+function saveHistory() {
+  state.history.push(clonePageState(state.pages));
+  if (state.history.length > 30) state.history.shift();
+  state.future = [];
+  updateUndoRedoButtons();
+}
+
+function undo() {
+  if (state.history.length === 0) return;
+  state.future.push(clonePageState(state.pages));
+  state.pages = state.history.pop();
+  renderWorkspace();
+  updateUndoRedoButtons();
+  showToast("Undid last action");
+}
+
+function redo() {
+  if (state.future.length === 0) return;
+  state.history.push(clonePageState(state.pages));
+  state.pages = state.future.pop();
+  renderWorkspace();
+  updateUndoRedoButtons();
+  showToast("Redid action");
+}
+
+function updateUndoRedoButtons() {
+  els.btnUndo.disabled = state.history.length === 0;
+  els.btnRedo.disabled = state.future.length === 0;
+}
+
+// VS Code Explorer Sidebar Data Loading
 async function addBlankPage(afterIndex = null) {
   saveHistory();
   let refWidth = 595.28;
