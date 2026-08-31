@@ -178,6 +178,25 @@ function initEventListeners() {
       e.stopPropagation();
       executeRemovePages();
     });
+function clonePageState(pages) {
+  return pages.map(p => ({
+    id: p.id,
+    source_pdf_id: p.source_pdf_id,
+    source_pdf_name: p.source_pdf_name,
+    source_page_index: p.source_page_index,
+    width: p.width,
+    height: p.height,
+    rotation: p.rotation,
+    effective_width: p.effective_width,
+    effective_height: p.effective_height,
+    orientation: p.orientation,
+    is_blank: p.is_blank,
+    thumbnail: p.thumbnail,
+    overlays: p.overlays ? p.overlays.map(o => ({ ...o })) : []
+  }));
+}
+
+// History
 async function addBlankPage(afterIndex = null) {
   saveHistory();
   let refWidth = 595.28;
