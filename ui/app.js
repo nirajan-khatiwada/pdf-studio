@@ -309,6 +309,34 @@ function getSelectedOrLastPageIndex() {
 let lastIndicatedSlot = null;
 let lastIndicatedSide = null;
 
+function showFloatingDropIndicator(slot, isLeft) {
+  if (!els.dropIndicatorBar || !els.workspaceScroll) return;
+  if (lastIndicatedSlot === slot && lastIndicatedSide === isLeft) return;
+  lastIndicatedSlot = slot;
+  lastIndicatedSide = isLeft;
+
+  const scrollRect = els.workspaceScroll.getBoundingClientRect();
+  const slotRect = slot.getBoundingClientRect();
+  const x = isLeft ? (slotRect.left - scrollRect.left - 6) : (slotRect.right - scrollRect.left + 2);
+  const y = (slotRect.top - scrollRect.top) + els.workspaceScroll.scrollTop + 4;
+  const h = slotRect.height - 8;
+
+  els.dropIndicatorBar.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+  els.dropIndicatorBar.style.height = `${h}px`;
+  els.dropIndicatorBar.classList.add('active');
+}
+
+function hideFloatingDropIndicator() {
+  if (!els.dropIndicatorBar) return;
+  els.dropIndicatorBar.classList.remove('active');
+  lastIndicatedSlot = null;
+  lastIndicatedSide = null;
+}
+
+// Edge Auto-Scrolling Engine (Effortlessly scroll across 100+ pages during drag)
+let autoScrollRaf = null;
+let autoScrollSpeed = 0;
+
 function startAutoScrollLoop() {
   if (autoScrollRaf !== null) return;
   function step() {
