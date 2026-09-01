@@ -110,6 +110,41 @@ class PDFStudioAPI:
         )
         return {"success": True, "page": blank_info}
 
+    def export_document(
+        self,
+        manifest: list,
+        output_name: Optional[str] = None,
+        custom_source_bytes: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
+        if custom_source_bytes:
+            for s_id, b64_str in custom_source_bytes.items():
+                if "," in b64_str:
+                    b64_str = b64_str.split(",", 1)[1]
+                self.source_cache[s_id] = base64.b64decode(b64_str)
+
+        if not output_name:
+            output_name = "Exported_Document.pdf"
+
+        if not os.path.isabs(output_name):
+            output_path = os.path.join(self.pdf_dir, output_name)
+        else:
+            output_path = output_name
+
+        result = self.engine.export_pdf(manifest, self.source_cache, output_path)
+        with open(output_path, "rb") as f:
+            out_bytes = f.read()
+        out_b64 = base64.b64encode(out_bytes).decode("ascii")
+
+        return {
+            "success": True,
+            "output_path": output_path,
+            "output_name": os.path.basename(output_path),
+            "page_count": result["page_count"],
+            "file_size": result["file_size"],
+            "pdf_base64": out_b64,
+        }
+
+
 class PDFStudioHTTPHandler(SimpleHTTPRequestHandler):
     """HTTP Request Handler serving UI assets and JSON API."""
     api_instance: Optional[PDFStudioAPI] = None
