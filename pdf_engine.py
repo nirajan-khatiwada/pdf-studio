@@ -284,6 +284,73 @@ class PDFEngine:
             "overlays": [],
         }
 
+    def export_pdf(
+        self,
+        page_manifest: List[Dict[str, Any]],
+        source_pdfs_bytes: Dict[str, bytes],
+        output_path: str
+    ) -> Dict[str, Any]:
+        """
+        Compile and export the final unified PDF document.
+        - Preserves exact page sequence as defined in page_manifest.
+        - Preserves original page dimensions and orientation for each page individually.
+        - Preserves blank pages with inherited geometry.
+        - Renders text overlays with font size, bold/italic, color, and coordinates.
+        - Renders image overlays with exact coordinates and scaling.
+        - Writes clean, standard PDF to output_path.
+        """
+        if not page_manifest:
+            raise ValueError("Cannot export empty document. Add at least one page.")
+
+        output_doc = pymupdf.open()
+        loaded_sources: Dict[str, pymupdf.Document] = {}
+        for src_id, b_data in source_pdfs_bytes.items():
+            loaded_sources[src_id] = pymupdf.open(stream=b_data, filetype="pdf")
+
+        try:
+            for page_info in page_manifest:
+                is_blank = page_info.get("is_blank", False)
+                src_id = page_info.get("source_pdf_id")
+                src_page_idx = page_info.get("source_page_index", 0)
+                width = float(page_info.get("width", 595.28))
+                height = float(page_info.get("height", 841.89))
+                rotation = int(page_info.get("rotation", 0)) % 360
+
+                if is_blank or src_id == "blank" or src_id not in loaded_sources:
+                    dest_page = output_doc.new_page(width=width, height=height)
+                    dest_page.set_rotation(rotation)
+                else:
+                    src_doc = loaded_sources[src_id]
+                    if 0 <= src_page_idx < len(src_doc):
+                        output_doc.insert_pdf(src_doc, from_page=src_page_idx, to_page=src_page_idx)
+                        dest_page = output_doc[-1]
+                        dest_page.set_rotation(rotation)
+                    else:
+                        dest_page = output_doc.new_page(width=width, height=height)
+                        dest_page.set_rotation(rotation)
+
+                # Now apply overlays (Text & Images)
+                overlays = page_info.get("overlays", [])
+                if overlays:
+                    self._apply_overlays_to_page(dest_page, overlays)
+
+            os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+            output_doc.save(output_path, garbage=4, deflate=True)
+            page_count = len(output_doc)
+            file_size = os.path.getsize(output_path)
+
+        finally:
+            output_doc.close()
+            for s_doc in loaded_sources.values():
+                s_doc.close()
+
+        return {
+            "success": True,
+            "output_path": output_path,
+            "page_count": page_count,
+            "file_size": file_size,
+        }
+
     def create_sample_documents(self) -> List[str]:
         """
         Generate two high quality sample PDFs in the working directory:
