@@ -763,6 +763,69 @@ function updateStatus() {
 }
 
 // Page Annotation Dialog (Text & Images)
+async function handleExport() {
+  if (state.pages.length === 0) {
+    showToast("Cannot export: Workspace is empty", "error");
+    return;
+  }
+
+  showToast("Compiling PDF document...", "info");
+  els.btnExportPdf.disabled = true;
+
+  try {
+    let targetFilename = "Exported_Document.pdf";
+
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.save_native_pdf_dialog) {
+      const chosenPath = await window.pywebview.api.save_native_pdf_dialog(targetFilename);
+      if (chosenPath) {
+        targetFilename = chosenPath;
+      }
+    }
+
+    const sourceBytesMap = {};
+    for (const [id, doc] of Object.entries(state.sourcePdfs)) {
+      if (doc.bytes_b64) {
+        sourceBytesMap[id] = doc.bytes_b64;
+      }
+    }
+
+    const payload = {
+      manifest: state.pages,
+      outputPath: targetFilename,
+      sourceBytes: sourceBytesMap
+    };
+
+    const res = await fetch('/api/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Exported ${data.page_count} pages (${(data.file_size / 1024).toFixed(1)} KB)`, 'success');
+
+      if (data.pdf_base64) {
+        const link = document.createElement('a');
+        link.href = `data:application/pdf;base64,${data.pdf_base64}`;
+        link.download = data.output_name || 'Exported_Document.pdf';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+
+      loadDirectoryTree();
+    } else {
+      showToast(`Export failed: ${data.error}`, 'error');
+    }
+  } catch (err) {
+    showToast(`Export error: ${err.message}`, 'error');
+  } finally {
+    els.btnExportPdf.disabled = false;
+  }
+}
+
+// Toast Notifications (Minimalist, Zero emojis)
 function showToast(message, type = 'info') {
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
