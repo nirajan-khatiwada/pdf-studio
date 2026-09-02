@@ -100,17 +100,86 @@
   <div class="app-body">
 
     <!-- VS Code Style Explorer Sidebar -->
-  <div class="app-body">
-    <main class="workspace-scroll" id="workspaceScroll">
-      <div class="empty-state" id="emptyState">
-        <h3>No pages loaded</h3>
+    <aside class="vscode-sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">EXPLORER</span>
+        <div class="sidebar-actions">
+          <button id="btnRefreshTree" class="sidebar-icon-btn" title="Refresh Explorer">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          </button>
+        </div>
       </div>
+
+      <!-- Section 1: Uploaded Documents in Workspace -->
+      <div class="sidebar-section">
+        <div class="section-title" id="sectionToggleUploaded">
+          <svg class="chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          <span>OPEN DOCUMENTS</span>
+          <span id="sidebarUploadedCount" class="badge-count">0</span>
+        </div>
+        <div class="section-content" id="sidebarUploadedList">
+          <div class="sidebar-empty-note">No documents opened</div>
+        </div>
+      </div>
+
+      <!-- Section 2: Working Directory Folder & File Tree (VS Code Style) -->
+      <div class="sidebar-section">
+        <div class="section-title" id="sectionToggleTree">
+          <svg class="chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          <span id="sidebarFolderTitle">FOLDER: NOTE</span>
+        </div>
+        <div class="section-content" id="sidebarTreeList">
+          <div class="sidebar-empty-note">Loading files...</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Workspace Area -->
+    <main class="workspace-scroll" id="workspaceScroll">
+
+      <!-- Drag and Drop Overlay -->
+      <div class="drop-overlay" id="dropOverlay">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#18181b" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <h4 style="font-size: 15px; font-weight: 600; margin-top: 8px;">Drop PDF files to add to workspace</h4>
+        <p style="color: #71717a; font-size: 12.5px;">Pages will append to the end of the document</p>
+      </div>
+
+      <!-- Minimal Empty State -->
+      <div class="empty-state" id="emptyState">
+        <div class="empty-state-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </div>
+        <h3>No pages loaded</h3>
+        <p>Drop PDF files here, or select files from the left explorer.</p>
+        <button id="btnEmptyOpen" class="btn btn-default" style="margin: 0 auto;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Open PDF File
+        </button>
+      </div>
+
+      <!-- Continuous Page Workspace Grid -->
       <div class="page-grid" id="pageGrid" style="display: none;"></div>
+
+      <!-- Single Global Floating Insertion Indicator Bar -->
+      <div class="drop-indicator-bar" id="dropIndicatorBar"></div>
+
     </main>
   </div>
+
+  <!-- Status Bar -->
   <footer class="status-bar">
-    <span id="statusPageCount">0 pages</span>
+    <div class="status-group">
+      <span id="statusPageCount">0 pages</span>
+      <span class="status-sep">/</span>
+      <span id="statusSourceCount">0 documents</span>
+      <span class="status-sep">/</span>
+      <span id="statusSelectedInfo">No page selected</span>
+    </div>
+    <div class="status-group">
+      <span>PyMuPDF 1.28 Engine</span>
+    </div>
   </footer>
+
   <div class="toast-container" id="toastContainer"></div>
   <script src="app.js"></script>
 </body>
