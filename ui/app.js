@@ -294,6 +294,82 @@ function renderDirectoryTree(items) {
   });
 }
 
+function updateSidebarUploadedDocuments() {
+  const sources = Object.entries(state.sourcePdfs);
+  els.sidebarUploadedCount.textContent = sources.length;
+
+  if (sources.length === 0) {
+    els.sidebarUploadedList.innerHTML = '<div class="sidebar-empty-note">No documents opened</div>';
+    return;
+  }
+
+  els.sidebarUploadedList.innerHTML = '';
+  sources.forEach(([id, doc]) => {
+    const el = document.createElement('div');
+    el.className = 'tree-item';
+    el.innerHTML = `
+      <span class="tree-item-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#09090b" stroke-width="1.8">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+        </svg>
+      </span>
+      <span class="tree-item-name" title="${doc.name}">${doc.name}</span>
+      <span class="tree-item-meta">${doc.page_count}p</span>
+      <button class="tree-item-close" title="Remove document from workspace">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    `;
+
+    // Remove all pages belonging to this source document
+    el.querySelector('.tree-item-close').addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeSourceDocument(id);
+    });
+
+    // Click to focus/select first page of this document
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.tree-item-close')) return;
+      const targetPage = state.pages.find(p => p.source_pdf_id === id);
+      if (targetPage) {
+        state.selectedPageId = targetPage.id;
+        document.querySelectorAll('.page-card').forEach(c => {
+          c.classList.toggle('selected', c.dataset.id === targetPage.id);
+        });
+        updateStatus();
+        const slot = Array.from(els.pageGrid.children).find(s => {
+          const c = s.querySelector('.page-card');
+          return c && c.dataset.id === targetPage.id;
+        });
+        if (slot) slot.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    });
+
+    // Double-click to open first page of this document in editor
+    el.addEventListener('dblclick', (e) => {
+      if (e.target.closest('.tree-item-close')) return;
+      const targetPage = state.pages.find(p => p.source_pdf_id === id);
+      if (targetPage) {
+        openAnnotationDialog(targetPage.id);
+      }
+    });
+
+    els.sidebarUploadedList.appendChild(el);
+  });
+}
+
+function removeSourceDocument(sourceId) {
+  saveHistory();
+  state.pages = state.pages.filter(p => p.source_pdf_id !== sourceId);
+  delete state.sourcePdfs[sourceId];
+  if (state.selectedPageId && !state.pages.some(p => p.id === state.selectedPageId)) {
+    state.selectedPageId = state.pages[0] ? state.pages[0].id : null;
+  }
+  renderWorkspace();
+  showToast("Removed document from workspace");
+}
+
+// File Loading & Uploading
 async function handleOpenPdfClick() {
   if (window.pywebview && window.pywebview.api && window.pywebview.api.open_native_pdf_dialog) {
     try {
