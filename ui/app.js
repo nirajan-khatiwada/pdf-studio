@@ -228,6 +228,194 @@ function updateUndoRedoButtons() {
 }
 
 // VS Code Explorer Sidebar Data Loading
+async function loadDirectoryTree() {
+  try {
+    const res = await fetch('/api/directory_tree');
+    const data = await res.json();
+    if (data.success) {
+      state.workingFolderName = data.folder_name || 'note';
+      els.sidebarFolderTitle.textContent = `FOLDER: ${state.workingFolderName.toUpperCase()}`;
+      renderDirectoryTree(data.items || []);
+    }
+  } catch (err) {
+    els.sidebarTreeList.innerHTML = `<div class="sidebar-empty-note">Could not load directory: ${err.message}</div>`;
+  }
+}
+
+function renderDirectoryTree(items) {
+  if (items.length === 0) {
+    els.sidebarTreeList.innerHTML = '<div class="sidebar-empty-note">Folder is empty</div>';
+    return;
+  }
+
+  els.sidebarTreeList.innerHTML = '';
+  items.forEach(item => {
+    const el = document.createElement('div');
+    el.className = 'tree-item';
+    el.title = item.is_pdf ? `Click to open ${item.name} in workspace` : item.name;
+
+    // SVG Icon according to file type
+    let iconSvg = '';
+    if (item.is_dir) {
+      iconSvg = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.8">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+        </svg>
+      `;
+    } else if (item.is_pdf) {
+      iconSvg = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#e11d48" stroke-width="1.8">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+        </svg>
+      `;
+    } else {
+      iconSvg = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.8">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+        </svg>
+      `;
+    }
+
+    el.innerHTML = `
+      <span class="tree-item-icon">${iconSvg}</span>
+      <span class="tree-item-name">${item.name}</span>
+      ${item.is_pdf ? `<span class="tree-item-meta">${item.page_count}p</span>` : ''}
+    `;
+
+    if (item.is_pdf) {
+      el.addEventListener('click', () => loadFileFromPath(item.name));
+    }
+
+    els.sidebarTreeList.appendChild(el);
+  });
+}
+
+async function handleOpenPdfClick() {
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.open_native_pdf_dialog) {
+    try {
+      const paths = await window.pywebview.api.open_native_pdf_dialog();
+      if (paths && paths.length > 0) {
+        for (const p of paths) {
+          await loadFileFromPath(p);
+        }
+        return;
+      }
+    } catch (err) {
+      console.warn("Native file dialog fallback:", err);
+    }
+  }
+  els.pdfFileInput.click();
+}
+
+function handleFileInputChange(e) {
+  if (e.target.files && e.target.files.length > 0) {
+    handleDroppedFiles(e.target.files);
+    els.pdfFileInput.value = '';
+  }
+}
+
+async function handleDroppedFiles(fileList) {
+  for (let i = 0; i < fileList.length; i++) {
+    const file = fileList[i];
+    if (file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf') {
+      await uploadPdfFile(file);
+    } else {
+      showToast(`Skipped non-PDF: ${file.name}`, 'error');
+    }
+  }
+}
+
+let isLoadingFile = false;
+
+async function loadFileFromPath(filePath) {
+  if (isLoadingFile) return;
+  isLoadingFile = true;
+  const shortName = filePath.split(/[\/\\]/).pop();
+  showToast(`Loading ${shortName}...`);
+  try {
+    const res = await fetch('/api/load_file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePath })
+    });
+    const data = await res.json();
+    if (data.success && data.document) {
+      addDocumentPagesToWorkspace(data.document);
+      showToast(`Loaded ${data.document.name} (${data.document.page_count} pages)`, 'success');
+    } else {
+      showToast(`Failed to load: ${data.error}`, 'error');
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, 'error');
+  } finally {
+    isLoadingFile = false;
+  }
+}
+
+async function uploadPdfFile(file) {
+  showToast(`Uploading ${file.name}...`);
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const base64Data = reader.result;
+        const res = await fetch('/api/upload_pdf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileName: file.name,
+            dataBase64: base64Data
+          })
+        });
+        const data = await res.json();
+        if (data.success && data.document) {
+          addDocumentPagesToWorkspace(data.document);
+          showToast(`Added ${data.document.name} (${data.document.page_count} pages)`, 'success');
+          loadDirectoryTree();
+        } else {
+          showToast(`Upload failed: ${data.error}`, 'error');
+        }
+      } catch (err) {
+        showToast(`Error: ${err.message}`, 'error');
+      }
+      resolve();
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function addDocumentPagesToWorkspace(doc) {
+  saveHistory();
+  state.sourcePdfs[doc.source_id] = {
+    name: doc.name,
+    page_count: doc.page_count,
+    bytes_b64: doc.bytes_b64
+  };
+
+  state.pages = state.pages.concat(doc.pages);
+  if (!state.selectedPageId && state.pages.length > 0) {
+    state.selectedPageId = state.pages[0].id;
+  }
+  renderWorkspace();
+}
+
+function handleClearAll() {
+  if (state.pages.length === 0) return;
+  if (confirm("Clear all pages from workspace?")) {
+    saveHistory();
+    state.pages = [];
+    state.sourcePdfs = {};
+    state.selectedPageId = null;
+    renderWorkspace();
+    showToast("Workspace cleared");
+  }
+}
+
+// Blank Page Insertion with Orientation Inheritance
 async function addBlankPage(afterIndex = null) {
   saveHistory();
   let refWidth = 595.28;
