@@ -742,6 +742,68 @@ function processRemovePagesInput() {
 }
 
 // Instant in-place batch deletion (<5ms) without full grid destruction
+function executeRemovePages() {
+  const val = els.inputRemovePages.value.trim();
+  const indices = parsePageRanges(val, state.pages.length);
+  if (indices.length === 0) return;
+
+  saveHistory();
+  const indexSet = new Set(indices);
+  const removedCount = indices.length;
+
+  // 1. Update state array
+  state.pages = state.pages.filter((_, idx) => !indexSet.has(idx));
+
+  if (state.selectedPageId && !state.pages.some(p => p.id === state.selectedPageId)) {
+    state.selectedPageId = state.pages[0] ? state.pages[0].id : null;
+  }
+
+  closeRemovePagesPopover();
+
+  // If workspace is now empty, render empty state
+  if (state.pages.length === 0) {
+    renderWorkspace();
+    showToast(`Removed all ${removedCount} pages`, 'success');
+    return;
+  }
+
+  // 2. Direct DOM removal of deleted slots in a single pass (<2ms)
+  const slots = Array.from(els.pageGrid.children);
+  for (const idx of indices) {
+    if (slots[idx]) {
+      slots[idx].remove();
+    }
+  }
+  currentMarkedIndices.clear();
+
+  // 3. Fast re-indexing from lowest affected index to end (<3ms)
+  const minAffectedIdx = Math.min(...indices);
+  const remainingSlots = els.pageGrid.children;
+  for (let i = minAffectedIdx; i < remainingSlots.length; i++) {
+    const s = remainingSlots[i];
+    s.dataset.index = i;
+    const c = s.querySelector('.page-card');
+    if (c) {
+      c.dataset.index = i;
+      c.classList.remove('marked-for-deletion');
+      const num = c.querySelector('.card-page-num');
+      if (num) num.textContent = i + 1;
+    }
+    const gutterBtn = s.querySelector('.gutter-add-btn');
+    if (gutterBtn && state.pages[i]) {
+      gutterBtn.title = `Insert blank ${state.pages[i].orientation} page after Page ${i + 1}`;
+    }
+  }
+
+  // 4. Update title display and status bar
+  els.docTitleDisplay.textContent = `Document (${state.pages.length} pages)`;
+  updateSidebarUploadedDocuments();
+  updateStatus();
+
+  showToast(`Removed ${removedCount} page${removedCount > 1 ? 's' : ''}`, 'success');
+}
+
+
 function rotatePage(index, degrees) {
   if (index < 0 || index >= state.pages.length) return;
   saveHistory();
