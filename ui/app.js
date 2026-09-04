@@ -1255,6 +1255,61 @@ function updateStatus() {
 }
 
 // Page Annotation Dialog (Text & Images)
+async function openAnnotationDialog(pageId) {
+  const page = state.pages.find(p => p.id === pageId);
+  if (!page) return;
+
+  state.editor.pageId = pageId;
+  state.editor.overlays = JSON.parse(JSON.stringify(page.overlays || []));
+  state.editor.selectedOverlayId = null;
+
+  const pageIdx = state.pages.indexOf(page);
+  els.dialogPageTitle.textContent = `Annotate Page ${pageIdx + 1} (${page.orientation} · ${Math.round(page.effective_width)} × ${Math.round(page.effective_height)} pt)`;
+
+  let imageUrl = page.thumbnail;
+  if (!page.is_blank && page.source_pdf_id !== 'blank') {
+    try {
+      const res = await fetch('/api/high_res_page', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourcePdfId: page.source_pdf_id,
+          sourcePageIndex: page.source_page_index,
+          rotation: page.rotation
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.imageUrl) {
+        imageUrl = data.imageUrl;
+      }
+    } catch (e) {
+      console.warn("High-res load fallback:", e);
+    }
+  }
+
+  els.editorSheetImage.src = imageUrl;
+  renderEditorOverlays();
+  els.annotationDialog.classList.add('open');
+}
+
+function closeAnnotationDialog() {
+  els.annotationDialog.classList.remove('open');
+  state.editor.pageId = null;
+  state.editor.overlays = [];
+}
+
+function saveAnnotationDialog() {
+  if (!state.editor.pageId) return;
+  saveHistory();
+  const page = state.pages.find(p => p.id === state.editor.pageId);
+  if (page) {
+    page.overlays = JSON.parse(JSON.stringify(state.editor.overlays));
+    renderWorkspace();
+    showToast(`Saved annotations for Page ${state.pages.indexOf(page) + 1}`, 'success');
+  }
+  closeAnnotationDialog();
+}
+
 async function handleExport() {
   if (state.pages.length === 0) {
     showToast("Cannot export: Workspace is empty", "error");
