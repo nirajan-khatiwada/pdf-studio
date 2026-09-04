@@ -667,6 +667,232 @@ body.is-reordering-cards .page-card:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 
+/* Dialog / Modal (shadcn style) */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(9, 9, 11, 0.55);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+.dialog-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.dialog-content {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.18);
+  width: 90vw;
+  max-width: 1040px;
+  height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dialog-header {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fafafa;
+}
+
+.dialog-title {
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-toolbar {
+  height: 38px;
+  background: #ffffff;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  flex-shrink: 0;
+}
+
+.clipboard-shortcut-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background-color: #f4f4f5;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 11px;
+  color: #71717a;
+  user-select: none;
+}
+
+.clipboard-shortcut-badge .kbd-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  background: #ffffff;
+  border: 1px solid #d4d4d8;
+  border-radius: 3px;
+  padding: 0 4px;
+  color: #18181b;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+}
+
+.editor-sheet.drag-over {
+  outline: 2.5px dashed #2563eb;
+  outline-offset: 4px;
+}
+
+.select-sm {
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 11.5px;
+  background: #fff;
+  outline: none;
+}
+
+.color-pill {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.color-pill:hover {
+  transform: scale(1.15);
+}
+
+.editor-canvas-container {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: #f4f4f5;
+  position: relative;
+}
+
+.editor-sheet {
+  position: relative;
+  background: #ffffff;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+  user-select: none;
+  display: inline-block;
+  line-height: 0;
+}
+
+.editor-sheet img, #editorSheetImage {
+  display: block;
+  max-height: calc(85vh - 150px) !important;
+  max-width: 100% !important;
+  width: auto !important;
+  height: auto !important;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+#editorOverlaysLayer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: auto;
+}
+
+.sheet-overlay {
+  position: absolute;
+  border: 1px dashed transparent;
+  cursor: move;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sheet-overlay.active {
+  border-color: #2563eb;
+  background-color: rgba(37, 99, 235, 0.05);
+}
+
+.sheet-overlay .resize-handle {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  background: #2563eb;
+  border: 1px solid #ffffff;
+  bottom: -3px;
+  right: -3px;
+  cursor: se-resize;
+  display: none;
+}
+
+.sheet-overlay.active .resize-handle {
+  display: block;
+}
+
+.sheet-overlay .delete-overlay-btn {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ef4444;
+  color: #fff;
+  border: none;
+  font-size: 10px;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.sheet-overlay.active .delete-overlay-btn {
+  display: flex;
+}
+
+.sheet-overlay textarea {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  font-family: inherit;
+  cursor: text;
+}
+
+.dialog-footer {
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  background: #ffffff;
+}
+
 /* Remove Pages by Number & Range with Live Blur Feedback */
 .remove-pages-wrapper {
   position: relative;
