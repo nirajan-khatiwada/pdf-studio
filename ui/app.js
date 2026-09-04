@@ -1310,6 +1310,216 @@ function saveAnnotationDialog() {
   closeAnnotationDialog();
 }
 
+function renderEditorOverlays() {
+  els.editorOverlaysLayer.innerHTML = '';
+  state.editor.overlays.forEach(item => {
+    const el = document.createElement('div');
+    el.className = `sheet-overlay ${item.id === state.editor.selectedOverlayId ? 'active' : ''}`;
+    el.dataset.id = item.id;
+    el.style.left = `${item.x}%`;
+    el.style.top = `${item.y}%`;
+    el.style.width = `${item.width}%`;
+    el.style.height = `${item.height}%`;
+
+    if (item.type === 'text') {
+      const textarea = document.createElement('textarea');
+      textarea.value = item.text || '';
+      textarea.style.fontSize = `${item.fontSize || 16}px`;
+      textarea.style.color = item.color || '#000000';
+      textarea.style.fontWeight = item.isBold ? '700' : '400';
+      textarea.style.fontStyle = item.isItalic ? 'italic' : 'normal';
+      textarea.placeholder = 'Type text...';
+
+      textarea.addEventListener('input', (e) => {
+        item.text = e.target.value;
+      });
+
+      textarea.addEventListener('focus', () => selectEditorOverlay(item.id));
+      el.appendChild(textarea);
+    } else if (item.type === 'image') {
+      const img = document.createElement('img');
+      img.src = item.imageUrl;
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'contain';
+      el.appendChild(img);
+    }
+
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'resize-handle';
+    makeResizable(el, resizeHandle, item);
+    el.appendChild(resizeHandle);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'delete-overlay-btn';
+    delBtn.innerHTML = '✕';
+    delBtn.title = 'Delete element';
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteOverlay(item.id);
+    });
+    el.appendChild(delBtn);
+
+    makeMovable(el, item);
+
+    el.addEventListener('mousedown', (e) => {
+      if (e.target !== resizeHandle && e.target !== delBtn) {
+        selectEditorOverlay(item.id);
+      }
+    });
+
+    els.editorOverlaysLayer.appendChild(el);
+  });
+}
+
+function selectEditorOverlay(id) {
+  state.editor.selectedOverlayId = id;
+  const item = state.editor.overlays.find(o => o.id === id);
+  if (item && item.type === 'text') {
+    els.editorFontSize.value = String(item.fontSize || 16);
+    els.editorToggleBold.style.backgroundColor = item.isBold ? '#e4e4e7' : 'transparent';
+    els.editorToggleItalic.style.backgroundColor = item.isItalic ? '#e4e4e7' : 'transparent';
+  }
+  document.querySelectorAll('.sheet-overlay').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === id);
+  });
+}
+
+function applySelectedTextProp(prop, val) {
+  if (!state.editor.selectedOverlayId) return;
+  const item = state.editor.overlays.find(o => o.id === state.editor.selectedOverlayId);
+  if (item && item.type === 'text') {
+    item[prop] = val;
+    renderEditorOverlays();
+  }
+}
+
+function addTextBoxInEditor() {
+  const offset = (state.editor.overlays.length % 6) * 3;
+  const newText = {
+    id: `txt_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+    type: 'text',
+    text: 'Click to edit text',
+    x: Math.min(65, 20 + offset),
+    y: Math.min(70, 20 + offset),
+    width: 35,
+    height: 8,
+    fontSize: state.editor.fontSize || 16,
+    isBold: state.editor.isBold || false,
+    isItalic: state.editor.isItalic || false,
+    color: state.editor.activeColor || '#000000',
+  };
+  state.editor.overlays.push(newText);
+  selectEditorOverlay(newText.id);
+  renderEditorOverlays();
+}
+
+function handleImageOverlayFile(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  insertImageOverlayFromFile(file);
+  els.imageOverlayInput.value = '';
+}
+
+function deleteSelectedOverlay() {
+  if (!state.editor.selectedOverlayId) return;
+  deleteOverlay(state.editor.selectedOverlayId);
+}
+
+function deleteOverlay(id) {
+  state.editor.overlays = state.editor.overlays.filter(o => o.id !== id);
+  if (state.editor.selectedOverlayId === id) {
+    state.editor.selectedOverlayId = null;
+  }
+  renderEditorOverlays();
+}
+
+function makeMovable(element, item) {
+  let isDragging = false;
+  let startX, startY;
+  let startLeft, startTop;
+
+  element.addEventListener('mousedown', (e) => {
+    if (e.target.tagName === 'TEXTAREA' && document.activeElement === e.target) {
+      return;
+    }
+    if (e.target.classList.contains('resize-handle') || e.target.classList.contains('delete-overlay-btn')) return;
+
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+
+    const sheetRect = els.editorSheet.getBoundingClientRect();
+    startLeft = (item.x / 100) * sheetRect.width;
+    startTop = (item.y / 100) * sheetRect.height;
+
+    const onMouseMove = (moveEvt) => {
+      if (!isDragging) return;
+      const dx = moveEvt.clientX - startX;
+      const dy = moveEvt.clientY - startY;
+      const newX = ((startLeft + dx) / sheetRect.width) * 100;
+      const newY = ((startTop + dy) / sheetRect.height) * 100;
+
+      item.x = Math.max(0, Math.min(100 - item.width, Math.round(newX * 10) / 10));
+      item.y = Math.max(0, Math.min(100 - item.height, Math.round(newY * 10) / 10));
+
+      element.style.left = `${item.x}%`;
+      element.style.top = `${item.y}%`;
+    };
+
+    const onMouseUp = () => {
+      isDragging = false;
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  });
+}
+
+function makeResizable(element, handle, item) {
+  let isResizing = false;
+  let startX, startY;
+  let startWidth, startHeight;
+
+  handle.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+    isResizing = true;
+    startX = e.clientX;
+    startY = e.clientY;
+
+    const sheetRect = els.editorSheet.getBoundingClientRect();
+    startWidth = (item.width / 100) * sheetRect.width;
+    startHeight = (item.height / 100) * sheetRect.height;
+
+    const onMouseMove = (moveEvt) => {
+      if (!isResizing) return;
+      const dx = moveEvt.clientX - startX;
+      const dy = moveEvt.clientY - startY;
+
+      const newW = ((startWidth + dx) / sheetRect.width) * 100;
+      const newH = ((startHeight + dy) / sheetRect.height) * 100;
+
+      item.width = Math.max(5, Math.min(100 - item.x, Math.round(newW * 10) / 10));
+      item.height = Math.max(3, Math.min(100 - item.y, Math.round(newH * 10) / 10));
+
+      element.style.width = `${item.width}%`;
+      element.style.height = `${item.height}%`;
+    };
+
+    const onMouseUp = () => {
+      isResizing = false;
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  });
+}
+
+// PDF Export Execution
 async function handleExport() {
   if (state.pages.length === 0) {
     showToast("Cannot export: Workspace is empty", "error");
