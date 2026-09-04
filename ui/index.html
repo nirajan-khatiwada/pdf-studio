@@ -206,6 +206,36 @@
     </div>
   </footer>
 
+  <!-- Page Annotation Dialog -->
+  <div class="dialog-backdrop" id="annotationDialog">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <div class="dialog-title">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          <span id="dialogPageTitle">Page Annotation</span>
+        </div>
+        <button id="btnCloseDialog" class="btn btn-ghost btn-icon-sm" title="Close">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <!-- Editor Toolbar -->
+      <!-- Editor Toolbar -->
+      <div class="editor-toolbar">
+        <button id="btnAddTextBox" class="btn btn-outline btn-sm">Add Text</button>
+      </div>
+      <div class="editor-canvas-container" id="editorCanvasContainer">
+        <div class="editor-sheet" id="editorSheet">
+          <img id="editorSheetImage" src="" alt="Page">
+          <div id="editorOverlaysLayer"></div>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button id="btnCancelDialog" class="btn btn-outline btn-sm">Cancel</button>
+        <button id="btnSaveDialog" class="btn btn-default btn-sm">Save Changes</button>
+      </div>
+    </div>
+  </div>
   <div class="toast-container" id="toastContainer"></div>
   <script src="app.js"></script>
 </body>
