@@ -1421,6 +1421,17 @@ function handleImageOverlayFile(e) {
   els.imageOverlayInput.value = '';
 }
 
+function handlePageGridDblClick(e) {
+  if (e.target.closest('.action-pill') || e.target.closest('.gutter-add-btn')) return;
+  const slot = e.target.closest('.page-slot');
+  if (slot) {
+    const idx = parseInt(slot.dataset.index, 10);
+    if (!isNaN(idx) && state.pages[idx]) {
+      openAnnotationDialog(state.pages[idx].id);
+    }
+  }
+}
+
 function deleteSelectedOverlay() {
   if (!state.editor.selectedOverlayId) return;
   deleteOverlay(state.editor.selectedOverlayId);
