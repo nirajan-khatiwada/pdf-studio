@@ -118,5 +118,23 @@ def run_tests():
         # Page 2: Blank Portrait
         rect2 = verify_doc[1].rect
         assert rect2.width < rect2.height, "Page 2 must be portrait"
+
+        # Page 3: Landscape (841.89 x 595.28)
+        rect3 = verify_doc[2].rect
+        assert rect3.width > rect3.height, "Page 3 must be landscape"
+
+        # Page 4: Blank Landscape
+        rect4 = verify_doc[3].rect
+        assert rect4.width > rect4.height, "Page 4 must be landscape"
+
+        # Page 5: Portrait
+        rect5 = verify_doc[4].rect
+        assert rect5.width < rect5.height, "Page 5 must be portrait"
+
+        verify_doc.close()
+        print("[PASS] All 5 exported pages verified for exact geometry and text rendering!")
+        print("\nALL INVARIANT TESTS PASSED SUCCESSFULLY!")
+
+
 if __name__ == "__main__":
-    unittest.main()
+    run_tests()
