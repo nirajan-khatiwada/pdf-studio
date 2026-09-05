@@ -351,6 +351,83 @@ class PDFEngine:
             "file_size": file_size,
         }
 
+    def _apply_overlays_to_page(self, page: pymupdf.Page, overlays: List[Dict[str, Any]]) -> None:
+        """Apply text and image overlays onto a PyMuPDF page."""
+        rect = page.rect
+        page_w = rect.width
+        page_h = rect.height
+
+        for item in overlays:
+            overlay_type = item.get("type")
+            x_rel = float(item.get("x", 0))
+            y_rel = float(item.get("y", 0))
+            w_rel = float(item.get("width", 20))
+            h_rel = float(item.get("height", 10))
+
+            if x_rel > 1.0 or y_rel > 1.0 or w_rel > 1.0 or h_rel > 1.0:
+                x_rel /= 100.0
+                y_rel /= 100.0
+                w_rel /= 100.0
+                h_rel /= 100.0
+
+            box_x0 = x_rel * page_w
+            box_y0 = y_rel * page_h
+            box_x1 = (x_rel + w_rel) * page_w
+            box_y1 = (y_rel + h_rel) * page_h
+            target_rect = pymupdf.Rect(box_x0, box_y0, box_x1, box_y1)
+
+            if overlay_type == "text":
+                text = item.get("text", "")
+                if not text:
+                    continue
+                font_size = float(item.get("fontSize", 16))
+                is_bold = bool(item.get("isBold", False))
+                is_italic = bool(item.get("isItalic", False))
+                color_hex = item.get("color", "#000000").lstrip("#")
+                
+                try:
+                    if len(color_hex) == 6:
+                        r = int(color_hex[0:2], 16) / 255.0
+                        g = int(color_hex[2:4], 16) / 255.0
+                        b = int(color_hex[4:6], 16) / 255.0
+                        color_rgb = (r, g, b)
+                    else:
+                        color_rgb = (0, 0, 0)
+                except Exception:
+                    color_rgb = (0, 0, 0)
+
+                if is_bold and is_italic:
+                    font_name = "hebi"
+                elif is_bold:
+                    font_name = "hebo"
+                elif is_italic:
+                    font_name = "heit"
+                else:
+                    font_name = "helv"
+
+                page.insert_textbox(
+                    target_rect,
+                    text,
+                    fontsize=font_size,
+                    fontname=font_name,
+                    color=color_rgb,
+                    align=pymupdf.TEXT_ALIGN_LEFT
+                )
+
+            elif overlay_type == "image":
+                img_data_url = item.get("imageUrl", "")
+                if not img_data_url:
+                    continue
+                try:
+                    if "," in img_data_url:
+                        raw_b64 = img_data_url.split(",", 1)[1]
+                    else:
+                        raw_b64 = img_data_url
+                    img_bytes = base64.b64decode(raw_b64)
+                    page.insert_image(target_rect, stream=img_bytes)
+                except Exception as err:
+                    print(f"Failed to insert image overlay: {err}")
+
     def create_sample_documents(self) -> List[str]:
         """
         Generate two high quality sample PDFs in the working directory:
