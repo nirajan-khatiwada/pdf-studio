@@ -1721,6 +1721,238 @@ function handlePageGridDblClick(e) {
   }
 }
 
+function insertImageOverlayFromDataUrl(dataUrl) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const sheetRect = els.editorSheet ? els.editorSheet.getBoundingClientRect() : { width: 600, height: 800 };
+      const sheetW = sheetRect.width > 0 ? sheetRect.width : 600;
+      const sheetH = sheetRect.height > 0 ? sheetRect.height : 800;
+
+      const natW = img.naturalWidth || 300;
+      const natH = img.naturalHeight || 300;
+      const aspect = natW / natH;
+
+      // Proportional sizing: around 35% of page width preserving natural aspect ratio
+      let widthPercent = 35;
+      let widthPx = (widthPercent / 100) * sheetW;
+      let heightPx = widthPx / aspect;
+      let heightPercent = (heightPx / sheetH) * 100;
+
+      // Prevent oversized overlays
+      if (heightPercent > 60) {
+        heightPercent = 60;
+        heightPx = (heightPercent / 100) * sheetH;
+        widthPx = heightPx * aspect;
+        widthPercent = (widthPx / sheetW) * 100;
+      }
+
+      widthPercent = Math.min(90, Math.max(10, Math.round(widthPercent * 10) / 10));
+      heightPercent = Math.min(90, Math.max(6, Math.round(heightPercent * 10) / 10));
+
+      // Staggered positioning
+      const offset = (state.editor.overlays.length % 6) * 3;
+      const posX = Math.max(5, Math.min(100 - widthPercent, Math.round(((100 - widthPercent) / 2) + offset)));
+      const posY = Math.max(5, Math.min(100 - heightPercent, Math.round(((100 - heightPercent) / 2) + offset)));
+
+      const newImg = {
+        id: `img_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        type: 'image',
+        imageUrl: dataUrl,
+        x: posX,
+        y: posY,
+        width: widthPercent,
+        height: heightPercent,
+      };
+
+      state.editor.overlays.push(newImg);
+      selectEditorOverlay(newImg.id);
+      renderEditorOverlays();
+      lastPasteHandledTime = Date.now();
+      showToast("Pasted image overlay onto page", "success");
+      resolve(newImg);
+    };
+    img.src = dataUrl;
+  });
+}
+
+function insertImageOverlayFromFile(fileOrBlob) {
+  if (!fileOrBlob) return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const item = await insertImageOverlayFromDataUrl(reader.result);
+        resolve(item);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = (e) => reject(e);
+    reader.readAsDataURL(fileOrBlob);
+  });
+}
+
+function insertTextOverlayFromClipboard(text) {
+  if (!text || !text.trim()) return;
+  const cleanText = text.trim();
+  const lines = cleanText.split('\n');
+  const maxLineLen = Math.max(...lines.map(l => l.length));
+
+  // Determine intelligent width & height
+  let widthPercent = Math.min(80, Math.max(25, Math.round(maxLineLen * 1.3)));
+  let heightPercent = Math.min(50, Math.max(8, Math.round(lines.length * 4.5 + 5)));
+
+  const offset = (state.editor.overlays.length % 6) * 3;
+  const posX = Math.max(5, Math.min(100 - widthPercent, Math.round(((100 - widthPercent) / 2) + offset)));
+  const posY = Math.max(5, Math.min(100 - heightPercent, Math.round(((100 - heightPercent) / 2) + offset)));
+
+  const newText = {
+    id: `txt_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+    type: 'text',
+    text: cleanText,
+    x: posX,
+    y: posY,
+    width: widthPercent,
+    height: heightPercent,
+    fontSize: state.editor.fontSize || 16,
+    isBold: state.editor.isBold || false,
+    isItalic: state.editor.isItalic || false,
+    color: state.editor.activeColor || '#000000',
+  };
+
+  state.editor.overlays.push(newText);
+  selectEditorOverlay(newText.id);
+  renderEditorOverlays();
+
+  setTimeout(() => {
+    const textarea = els.editorOverlaysLayer.querySelector(`.sheet-overlay[data-id="${newText.id}"] textarea`);
+    if (textarea) textarea.focus();
+  }, 50);
+
+  lastPasteHandledTime = Date.now();
+  showToast("Pasted text overlay onto page", "success");
+}
+
+async function handleGlobalPaste(e) {
+  // If actively focused in an input (e.g. range delete input), let native paste handle it
+  const activeEl = document.activeElement;
+  if (activeEl && activeEl.tagName === 'INPUT') {
+    return;
+  }
+
+  const clipboardData = e.clipboardData || window.clipboardData;
+  let imageFile = null;
+
+  if (clipboardData) {
+    // 1. Check DataTransferItemList for image
+    if (clipboardData.items) {
+      for (let i = 0; i < clipboardData.items.length; i++) {
+        const item = clipboardData.items[i];
+        if (item.type && item.type.startsWith('image/')) {
+          imageFile = item.getAsFile();
+          break;
+        }
+      }
+    }
+
+    // 2. Check files list for image
+    if (!imageFile && clipboardData.files && clipboardData.files.length > 0) {
+      for (let i = 0; i < clipboardData.files.length; i++) {
+        const f = clipboardData.files[i];
+        if (f.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(f.name)) {
+          imageFile = f;
+          break;
+        }
+      }
+    }
+  }
+
+  const pastedText = clipboardData ? (clipboardData.getData('text/plain') || clipboardData.getData('text')) : '';
+
+  // Prevent default synchronously on event tick so browser does not execute default action
+  if (imageFile) {
+    e.preventDefault();
+    e.stopPropagation();
+  } else if (pastedText && pastedText.trim().length > 0) {
+    if (activeEl && activeEl.tagName === 'TEXTAREA' && activeEl.closest('.sheet-overlay')) {
+      lastPasteHandledTime = Date.now();
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  // Ensure annotation editor dialog is open (auto-opens for selected page if closed!)
+  let isDialogOpen = els.annotationDialog.classList.contains('open');
+  if (!isDialogOpen) {
+    if (state.pages.length === 0) {
+      showToast("Workspace has no pages to paste onto", "info");
+      return;
+    }
+    const targetIdx = getSelectedOrLastPageIndex();
+    if (targetIdx === -1) return;
+    await openAnnotationDialog(state.pages[targetIdx].id);
+    isDialogOpen = true;
+  }
+
+  // PRIORITY 1: Image in clipboard -> paste image overlay
+  if (imageFile) {
+    await insertImageOverlayFromFile(imageFile);
+    return;
+  }
+
+  // PRIORITY 2: Text in clipboard -> paste text overlay
+  if (pastedText && pastedText.trim().length > 0) {
+    insertTextOverlayFromClipboard(pastedText);
+    return;
+  }
+
+  // PRIORITY 3: Fallback using navigator.clipboard API
+  if (navigator.clipboard && (navigator.clipboard.read || navigator.clipboard.readText)) {
+    await triggerClipboardApiFallback();
+  }
+}
+
+async function triggerClipboardApiFallback() {
+  let isDialogOpen = els.annotationDialog.classList.contains('open');
+  if (!isDialogOpen) {
+    if (state.pages.length === 0) return;
+    const targetIdx = getSelectedOrLastPageIndex();
+    if (targetIdx === -1) return;
+    await openAnnotationDialog(state.pages[targetIdx].id);
+    isDialogOpen = true;
+  }
+
+  try {
+    if (navigator.clipboard.read) {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        for (const type of item.types) {
+          if (type.startsWith('image/')) {
+            const blob = await item.getType(type);
+            await insertImageOverlayFromFile(blob);
+            return;
+          }
+        }
+      }
+    }
+
+    if (navigator.clipboard.readText) {
+      const clipText = await navigator.clipboard.readText();
+      if (clipText && clipText.trim().length > 0) {
+        const activeEl = document.activeElement;
+        if (!(activeEl && activeEl.tagName === 'TEXTAREA' && activeEl.closest('.sheet-overlay'))) {
+          insertTextOverlayFromClipboard(clipText);
+          return;
+        }
+      }
+    }
+  } catch (err) {
+    // Silent ignore for clipboard permission denial
+  }
+}
+
 function deleteSelectedOverlay() {
   if (!state.editor.selectedOverlayId) return;
   deleteOverlay(state.editor.selectedOverlayId);
@@ -1897,3 +2129,34 @@ function showToast(message, type = 'info') {
   }, 3000);
 }
 
+// Expose internal methods to window.app for desktop testing & bridge access
+window.app = {
+  state,
+  els,
+  loadDirectoryTree,
+  loadFileFromPath,
+  addBlankPage,
+  removePage,
+  rotatePage,
+  openAnnotationDialog,
+  closeAnnotationDialog,
+  saveAnnotationDialog,
+  handleExport,
+  renderWorkspace,
+  showToast,
+  parsePageRanges,
+  openRemovePagesPopover,
+  closeRemovePagesPopover,
+  toggleRemovePagesPopover,
+  clearDeletionBlur,
+  handleRemovePagesInput,
+  executeRemovePages,
+  movePageCardInDOM,
+  updateAutoScroll,
+  showFloatingDropIndicator,
+  hideFloatingDropIndicator,
+  handleGlobalPaste,
+  insertImageOverlayFromDataUrl,
+  insertImageOverlayFromFile,
+  insertTextOverlayFromClipboard,
+};
