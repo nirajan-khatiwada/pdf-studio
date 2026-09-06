@@ -178,6 +178,66 @@ function initEventListeners() {
       e.stopPropagation();
       executeRemovePages();
     });
+  }
+
+  if (els.removePagesPopover) {
+    els.removePagesPopover.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+  }
+
+  // Close popover on click outside
+  document.addEventListener('click', (e) => {
+    if (els.removePagesPopover && els.removePagesPopover.classList.contains('open')) {
+      if (!els.removePagesPopover.contains(e.target) && !els.btnToggleRemovePages.contains(e.target)) {
+        closeRemovePagesPopover();
+      }
+    }
+  });
+
+  els.btnAnnotatePage.addEventListener('click', () => {
+    const idx = getSelectedOrLastPageIndex();
+    if (idx !== -1) openAnnotationDialog(state.pages[idx].id);
+  });
+
+  els.btnExportPdf.addEventListener('click', handleExport);
+  els.btnUndo.addEventListener('click', undo);
+  els.btnRedo.addEventListener('click', redo);
+
+  els.btnZoomIn.addEventListener('click', () => setZoom(state.zoom + 0.1));
+  els.btnZoomOut.addEventListener('click', () => setZoom(state.zoom - 0.1));
+
+  els.btnClearAll.addEventListener('click', handleClearAll);
+
+  // Keyboard Shortcuts
+  window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      undo();
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) {
+      e.preventDefault();
+      redo();
+    } else if (e.key === 'Delete' && state.selectedPageId && !els.annotationDialog.classList.contains('open')) {
+      const idx = state.pages.findIndex(p => p.id === state.selectedPageId);
+      if (idx !== -1) removePage(idx);
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+      e.preventDefault();
+      els.btnToggleSidebar.click();
+    } else if (e.key === 'Enter' && state.selectedPageId && !els.annotationDialog.classList.contains('open')) {
+      // Enter on selected page opens annotation dialog
+      const activeTag = document.activeElement ? document.activeElement.tagName : '';
+      if (activeTag !== 'INPUT' && activeTag !== 'TEXTAREA') {
+        e.preventDefault();
+        openAnnotationDialog(state.selectedPageId);
+      }
+    } else if (e.key === 'Escape' && els.annotationDialog.classList.contains('open')) {
+      e.preventDefault();
+      closeAnnotationDialog();
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+      // If focused inside an input or inside a text overlay textarea, let native browser paste handle text typing
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'INPUT' || (activeEl.tagName === 'TEXTAREA' && activeEl.closest('.sheet-overlay')))) {
+        return;
 function clonePageState(pages) {
   return pages.map(p => ({
     id: p.id,
