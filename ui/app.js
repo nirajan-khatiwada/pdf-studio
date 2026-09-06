@@ -238,6 +238,235 @@ function initEventListeners() {
       const activeEl = document.activeElement;
       if (activeEl && (activeEl.tagName === 'INPUT' || (activeEl.tagName === 'TEXTAREA' && activeEl.closest('.sheet-overlay')))) {
         return;
+      }
+      // Trigger async clipboard fallback if browser paste event doesn't dispatch automatically
+      setTimeout(() => {
+        if (!lastPasteHandledTime || (Date.now() - lastPasteHandledTime > 300)) {
+          triggerClipboardApiFallback();
+        }
+      }, 50);
+    }
+  });
+
+  // Delegated Page Grid Drag & Drop (Butter-smooth, zero per-slot overhead)
+  els.pageGrid.addEventListener('dragover', (e) => {
+    if (draggedPageIndex === null) return;
+    e.preventDefault();
+    updateAutoScroll(e.clientY);
+
+    const slot = e.target.closest('.page-slot');
+    if (slot) {
+      const curIdx = parseInt(slot.dataset.index, 10);
+      if (!isNaN(curIdx)) {
+        const rect = slot.getBoundingClientRect();
+        const isLeft = (e.clientX - rect.left) < rect.width / 2;
+        currentDropTargetIndex = curIdx;
+        dropPosition = isLeft ? 'left' : 'right';
+        showFloatingDropIndicator(slot, isLeft);
+        return;
+      }
+    }
+
+    // Fallback if hovered over padding/empty space in grid
+    const slots = els.pageGrid.children;
+    if (slots.length > 0) {
+      const firstRect = slots[0].getBoundingClientRect();
+      const lastSlot = slots[slots.length - 1];
+      const lastRect = lastSlot.getBoundingClientRect();
+      if (e.clientY < firstRect.top + 30) {
+        currentDropTargetIndex = 0;
+        dropPosition = 'left';
+        showFloatingDropIndicator(slots[0], true);
+      } else if (e.clientY > lastRect.bottom - 30) {
+        currentDropTargetIndex = slots.length - 1;
+        dropPosition = 'right';
+        showFloatingDropIndicator(lastSlot, false);
+      }
+    }
+  });
+
+  els.pageGrid.addEventListener('drop', (e) => {
+    if (draggedPageIndex === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    stopAutoScroll();
+    hideFloatingDropIndicator();
+    document.body.classList.remove('is-reordering-cards');
+
+    const slot = e.target.closest('.page-slot');
+    let targetIdx = currentDropTargetIndex;
+    if (slot) {
+      const idx = parseInt(slot.dataset.index, 10);
+      if (!isNaN(idx)) targetIdx = idx;
+    }
+
+    if (targetIdx === null) {
+      const slots = els.pageGrid.children;
+      if (slots.length > 0) {
+        const firstRect = slots[0].getBoundingClientRect();
+        if (e.clientY < firstRect.top + 40) {
+          targetIdx = 0;
+          dropPosition = 'left';
+        } else {
+          targetIdx = slots.length - 1;
+          dropPosition = 'right';
+        }
+      }
+    }
+
+    if (targetIdx === null) return;
+    const fromIdx = draggedPageIndex;
+
+    let destIndex;
+    if (fromIdx < targetIdx) {
+      destIndex = dropPosition === 'right' ? targetIdx : targetIdx - 1;
+    } else {
+      destIndex = dropPosition === 'right' ? targetIdx + 1 : targetIdx;
+    }
+
+    destIndex = Math.max(0, Math.min(destIndex, state.pages.length - 1));
+
+    draggedPageIndex = null;
+    currentDropTargetIndex = null;
+    isDraggingCard = false;
+
+    if (fromIdx === destIndex) return;
+
+    saveHistory();
+
+    const itemToMove = state.pages.splice(fromIdx, 1)[0];
+    if (!itemToMove) {
+      renderWorkspace();
+      return;
+    }
+    state.pages.splice(destIndex, 0, itemToMove);
+    state.selectedPageId = itemToMove.id;
+
+    movePageCardInDOM(fromIdx, destIndex);
+    showToast(`Moved Page ${fromIdx + 1} to position ${destIndex + 1}`, 'success');
+  });
+
+  if (els.workspaceScroll) {
+    els.workspaceScroll.addEventListener('dragleave', (e) => {
+      if (e.relatedTarget === null || !els.workspaceScroll.contains(e.relatedTarget)) {
+        hideFloatingDropIndicator();
+        stopAutoScroll();
+      }
+    });
+  }
+
+  // File Drag & Drop onto Workspace (Only for external OS files, never during card reordering)
+  window.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (isDraggingCard || draggedPageIndex !== null) {
+      if (els.dropOverlay && els.dropOverlay.classList.contains('active')) {
+        els.dropOverlay.classList.remove('active');
+      }
+      updateAutoScroll(e.clientY);
+      return;
+    }
+    if (e.dataTransfer && e.dataTransfer.types) {
+      const types = Array.from(e.dataTransfer.types);
+      if (types.includes('Files') && !types.includes('application/x-page-card')) {
+        els.dropOverlay.classList.add('active');
+      }
+    }
+  });
+
+  window.addEventListener('dragleave', (e) => {
+    if (e.relatedTarget === null || e.clientX <= 0 || e.clientY <= 0) {
+      els.dropOverlay.classList.remove('active');
+    }
+  });
+
+  window.addEventListener('drop', (e) => {
+    e.preventDefault();
+    stopAutoScroll();
+    hideFloatingDropIndicator();
+    document.body.classList.remove('is-reordering-cards');
+    if (els.dropOverlay) els.dropOverlay.classList.remove('active');
+
+    if (isDraggingCard || draggedPageIndex !== null) {
+      return;
+    }
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleDroppedFiles(e.dataTransfer.files);
+    }
+  });
+
+  // Dialog Controls
+  els.btnCloseDialog.addEventListener('click', closeAnnotationDialog);
+  els.btnCancelDialog.addEventListener('click', closeAnnotationDialog);
+  els.btnSaveDialog.addEventListener('click', saveAnnotationDialog);
+
+  els.btnAddTextBox.addEventListener('click', addTextBoxInEditor);
+  els.btnAddImageOverlay.addEventListener('click', () => els.imageOverlayInput.click());
+  els.imageOverlayInput.addEventListener('change', handleImageOverlayFile);
+
+  els.editorFontSize.addEventListener('change', (e) => {
+    state.editor.fontSize = parseInt(e.target.value, 10);
+    applySelectedTextProp('fontSize', state.editor.fontSize);
+  });
+
+  els.editorToggleBold.addEventListener('click', () => {
+    state.editor.isBold = !state.editor.isBold;
+    els.editorToggleBold.style.backgroundColor = state.editor.isBold ? '#e4e4e7' : 'transparent';
+    applySelectedTextProp('isBold', state.editor.isBold);
+  });
+
+  els.editorToggleItalic.addEventListener('click', () => {
+    state.editor.isItalic = !state.editor.isItalic;
+    els.editorToggleItalic.style.backgroundColor = state.editor.isItalic ? '#e4e4e7' : 'transparent';
+    applySelectedTextProp('isItalic', state.editor.isItalic);
+  });
+
+  document.querySelectorAll('.color-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      const color = pill.dataset.color;
+      state.editor.activeColor = color;
+      applySelectedTextProp('color', color);
+    });
+  });
+
+  els.editorDeleteSelected.addEventListener('click', deleteSelectedOverlay);
+
+  // Global Clipboard Paste Listener (Ctrl+V) for image and text overlays
+  window.addEventListener('paste', handleGlobalPaste);
+
+  // Delegated Page Grid Double-Click Handler (100% reliable)
+  els.pageGrid.addEventListener('dblclick', handlePageGridDblClick);
+
+  // Editor Sheet Image Drag-and-Drop
+  if (els.editorSheet) {
+    els.editorSheet.addEventListener('dragover', (e) => {
+      if (e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files')) {
+        e.preventDefault();
+        e.stopPropagation();
+        els.editorSheet.classList.add('drag-over');
+      }
+    });
+
+    els.editorSheet.addEventListener('dragleave', (e) => {
+      if (e.relatedTarget === null || !els.editorSheet.contains(e.relatedTarget)) {
+        els.editorSheet.classList.remove('drag-over');
+      }
+    });
+
+    els.editorSheet.addEventListener('drop', (e) => {
+      els.editorSheet.classList.remove('drag-over');
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        const file = e.dataTransfer.files[0];
+        if (file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(file.name)) {
+          e.preventDefault();
+          e.stopPropagation();
+          insertImageOverlayFromFile(file);
+        }
+      }
+    });
+  }
+}
+
+// Fast History Cloning
 function clonePageState(pages) {
   return pages.map(p => ({
     id: p.id,
