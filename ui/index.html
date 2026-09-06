@@ -220,23 +220,75 @@
       </div>
 
       <!-- Editor Toolbar -->
-      <!-- Editor Toolbar -->
       <div class="editor-toolbar">
-        <button id="btnAddTextBox" class="btn btn-outline btn-sm">Add Text</button>
+        <button id="btnAddTextBox" class="btn btn-outline btn-sm" title="Insert movable text box (or press Ctrl+V with copied text)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+          Add Text
+        </button>
+
+        <button id="btnAddImageOverlay" class="btn btn-outline btn-sm" title="Place image overlay (or press Ctrl+V with copied image)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          Add Image
+        </button>
+        <input type="file" id="imageOverlayInput" accept="image/png,image/jpeg" style="display: none;">
+
+        <div class="clipboard-shortcut-badge" title="Press Ctrl+V anywhere in editor to paste image or text directly from clipboard">
+          <kbd class="kbd-key">Ctrl+V</kbd>
+          <span>Paste Image / Text</span>
+        </div>
+
+        <div class="toolbar-separator"></div>
+
+        <span style="font-size: 11.5px; color: #71717a;">Size:</span>
+        <select id="editorFontSize" class="select-sm">
+          <option value="12">12 pt</option>
+          <option value="14">14 pt</option>
+          <option value="16" selected>16 pt</option>
+          <option value="18">18 pt</option>
+          <option value="22">22 pt</option>
+          <option value="28">28 pt</option>
+          <option value="36">36 pt</option>
+        </select>
+
+        <button id="editorToggleBold" class="btn btn-ghost btn-icon-sm" title="Bold" style="font-weight: 700;">B</button>
+        <button id="editorToggleItalic" class="btn btn-ghost btn-icon-sm" title="Italic" style="font-style: italic; font-family: serif;">I</button>
+
+        <div class="toolbar-separator"></div>
+
+        <div style="display: flex; gap: 5px; align-items: center;">
+          <button class="color-pill" data-color="#000000" style="background: #000000; border-color: #52525b;"></button>
+          <button class="color-pill" data-color="#475569" style="background: #475569; border-color: #94a3b8;"></button>
+          <button class="color-pill" data-color="#1e3a8a" style="background: #1e3a8a; border-color: #60a5fa;"></button>
+          <button class="color-pill" data-color="#e11d48" style="background: #e11d48; border-color: #fb7185;"></button>
+          <button class="color-pill" data-color="#059669" style="background: #059669; border-color: #34d399;"></button>
+        </div>
+
+        <div class="toolbar-separator"></div>
+
+        <button id="editorDeleteSelected" class="btn btn-ghost btn-sm" style="color: #ef4444;" title="Delete selected element">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          Delete
+        </button>
       </div>
+
+      <!-- Editor Sheet -->
       <div class="editor-canvas-container" id="editorCanvasContainer">
         <div class="editor-sheet" id="editorSheet">
           <img id="editorSheetImage" src="" alt="Page">
           <div id="editorOverlaysLayer"></div>
         </div>
       </div>
+
       <div class="dialog-footer">
         <button id="btnCancelDialog" class="btn btn-outline btn-sm">Cancel</button>
         <button id="btnSaveDialog" class="btn btn-default btn-sm">Save Changes</button>
       </div>
     </div>
   </div>
+
+  <!-- Toast Notification Container (No emojis, crisp typography) -->
   <div class="toast-container" id="toastContainer"></div>
-  <script src="app.js"></script>
+
+  <script src="app.js?v=10"></script>
 </body>
 </html>

@@ -667,6 +667,31 @@ body.is-reordering-cards .page-card:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 
+/* Status Bar */
+.status-bar {
+  height: 26px;
+  background-color: #ffffff;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+  z-index: 20;
+}
+
+.status-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-sep {
+  color: #d4d4d8;
+}
+
 /* Dialog / Modal (shadcn style) */
 .dialog-backdrop {
   position: fixed;
@@ -891,6 +916,54 @@ body.is-reordering-cards .page-card:hover {
   justify-content: flex-end;
   gap: 8px;
   background: #ffffff;
+}
+
+/* Toast Notifications (No emojis, crisp minimal styling) */
+.toast-container {
+  position: fixed;
+  bottom: 34px;
+  right: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 200;
+  pointer-events: none;
+}
+
+.toast {
+  background: #09090b;
+  color: #fafafa;
+  padding: 8px 14px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+  animation: toastSlide 0.15s ease-out;
+}
+
+.toast.success {
+  background: #0f172a;
+  border-left: 3px solid #10b981;
+}
+
+.toast.error {
+  background: #0f172a;
+  border-left: 3px solid #ef4444;
+}
+
+@keyframes toastSlide {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 /* Remove Pages by Number & Range with Live Blur Feedback */
