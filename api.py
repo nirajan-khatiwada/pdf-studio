@@ -36,6 +36,7 @@ class PDFStudioAPI:
         os.makedirs(self.pdf_dir, exist_ok=True)
         self.engine = PDFEngine(self.working_dir, pdf_dir=self.pdf_dir)
         self.source_cache: Dict[str, bytes] = {}
+        self.source_meta: Dict[str, Dict[str, Any]] = {}
 
     def get_working_dir_pdfs(self) -> Dict[str, Any]:
         pdfs = self.engine.list_working_dir_pdfs()
@@ -61,6 +62,7 @@ class PDFStudioAPI:
         if not raw_bytes and "bytes_b64" in data:
             raw_bytes = base64.b64decode(data["bytes_b64"])
         self.source_cache[data["source_id"]] = raw_bytes
+        self.source_meta[data["source_id"]] = {"name": data["name"], "path": file_path}
         # Avoid sending multi-megabyte base64 over HTTP JSON
         data.pop("bytes_b64", None)
         return {"success": True, "document": data}
@@ -77,17 +79,101 @@ class PDFStudioAPI:
 
         data = self.engine.load_pdf_from_bytes(pdf_bytes, file_name, file_path=saved_path)
         self.source_cache[data["source_id"]] = pdf_bytes
+        self.source_meta[data["source_id"]] = {"name": file_name, "path": saved_path}
         data.pop("_raw_bytes", None)
         data.pop("bytes_b64", None)
         return {"success": True, "document": data}
 
+    def ensure_source_loaded(self, src_id: str, info: Optional[Dict[str, Any]] = None) -> bool:
+        """Ensure raw PDF bytes for src_id are present in source_cache, resolving dynamically if needed."""
+        if not src_id or src_id == "blank":
+            return False
+
+        if src_id in self.source_cache and self.source_cache[src_id]:
+            return True
+
+        if info and isinstance(info, dict):
+            self.source_meta[src_id] = info
+
+        meta = self.source_meta.get(src_id) or (info if isinstance(info, dict) else {})
+        path = meta.get("path") if isinstance(meta, dict) else None
+        name = meta.get("name") if isinstance(meta, dict) else None
+
+        target_path = None
+        if path and os.path.exists(path) and os.path.isfile(path):
+            target_path = path
+        elif name:
+            candidate_pdf = os.path.join(self.pdf_dir, name)
+            candidate_work = os.path.join(self.working_dir, name)
+            if os.path.exists(candidate_pdf) and os.path.isfile(candidate_pdf):
+                target_path = candidate_pdf
+            elif os.path.exists(candidate_work) and os.path.isfile(candidate_work):
+                target_path = candidate_work
+
+        # If not found yet, check saved session file on disk for sourcePdfs metadata
+        if not target_path:
+            session_file = os.path.join(self.working_dir, ".pdf_studio_session.json")
+            if os.path.exists(session_file):
+                try:
+                    with open(session_file, "r", encoding="utf-8") as f:
+                        disk_session = json.load(f)
+                    disk_sources = disk_session.get("sourcePdfs", {})
+                    if src_id in disk_sources:
+                        s_info = disk_sources[src_id]
+                        s_name = s_info.get("name")
+                        s_path = s_info.get("path")
+                        if s_path and os.path.exists(s_path):
+                            target_path = s_path
+                        elif s_name:
+                            c1 = os.path.join(self.pdf_dir, s_name)
+                            c2 = os.path.join(self.working_dir, s_name)
+                            if os.path.exists(c1):
+                                target_path = c1
+                            elif os.path.exists(c2):
+                                target_path = c2
+                except Exception:
+                    pass
+
+        # If still not found, search self.pdf_dir and working_dir for valid PDF files
+        if not target_path or not os.path.exists(target_path):
+            candidates = []
+            if os.path.exists(self.pdf_dir):
+                candidates.extend([os.path.join(self.pdf_dir, f) for f in os.listdir(self.pdf_dir) if f.lower().endswith(".pdf")])
+            if os.path.exists(self.working_dir):
+                candidates.extend([os.path.join(self.working_dir, f) for f in os.listdir(self.working_dir) if f.lower().endswith(".pdf")])
+
+            if name:
+                for c in candidates:
+                    if os.path.basename(c).lower() == name.lower():
+                        target_path = c
+                        break
+            if not target_path and candidates:
+                target_path = candidates[0]
+
+        if target_path and os.path.exists(target_path):
+            try:
+                with open(target_path, "rb") as f:
+                    data = f.read()
+                    self.source_cache[src_id] = data
+                    self.source_meta[src_id] = {"name": os.path.basename(target_path), "path": target_path}
+                return True
+            except Exception as err:
+                print(f"Error loading PDF from {target_path} for {src_id}: {err}")
+                return False
+
+        return False
+
     def get_thumbnail_png(self, source_id: str, page_index: int) -> Optional[bytes]:
+        if source_id not in self.source_cache:
+            self.ensure_source_loaded(source_id)
         if source_id not in self.source_cache:
             return None
         pdf_bytes = self.source_cache[source_id]
         return self.engine.render_thumbnail_png(pdf_bytes, page_index, source_id=source_id)
 
     def get_high_res_page(self, source_id: str, page_index: int, rotation: int = 0) -> Dict[str, Any]:
+        if source_id not in self.source_cache:
+            self.ensure_source_loaded(source_id)
         if source_id not in self.source_cache:
             return {"success": False, "error": f"Source document {source_id} not found in cache"}
         
@@ -142,6 +228,12 @@ class PDFStudioAPI:
         # Ensure destination directory exists
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
+        # Ensure all referenced source PDFs in manifest are loaded in cache
+        for item in manifest:
+            src_id = item.get("source_pdf_id")
+            if src_id and src_id != "blank" and src_id not in self.source_cache:
+                self.ensure_source_loaded(src_id)
+
         result = self.engine.export_pdf(manifest, self.source_cache, output_path)
         with open(output_path, "rb") as f:
             out_bytes = f.read()
@@ -157,11 +249,16 @@ class PDFStudioAPI:
         }
 
     def save_session(self, session_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Save workspace session to disk (.pdf_studio_session.json)."""
+        """Save workspace session to disk (.pdf_studio_session.json) and warm source cache."""
         session_file = os.path.join(self.working_dir, ".pdf_studio_session.json")
         try:
             with open(session_file, "w", encoding="utf-8") as f:
                 json.dump(session_data, f, ensure_ascii=False, indent=2)
+
+            source_meta = session_data.get("sourcePdfs", {})
+            for src_id, info in source_meta.items():
+                self.ensure_source_loaded(src_id, info)
+
             return {"success": True, "saved": True}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -179,26 +276,7 @@ class PDFStudioAPI:
             # Re-populate source_cache for referenced documents if files exist on disk
             source_meta = session_data.get("sourcePdfs", {})
             for src_id, info in source_meta.items():
-                if src_id not in self.source_cache:
-                    path = info.get("path")
-                    name = info.get("name")
-                    target_path = None
-                    if path and os.path.exists(path):
-                        target_path = path
-                    elif name:
-                        candidate_pdf = os.path.join(self.pdf_dir, name)
-                        candidate_work = os.path.join(self.working_dir, name)
-                        if os.path.exists(candidate_pdf):
-                            target_path = candidate_pdf
-                        elif os.path.exists(candidate_work):
-                            target_path = candidate_work
-
-                    if target_path and os.path.exists(target_path):
-                        try:
-                            with open(target_path, "rb") as f:
-                                self.source_cache[src_id] = f.read()
-                        except Exception as read_err:
-                            print(f"Warning: could not restore source cache for {src_id}: {read_err}")
+                self.ensure_source_loaded(src_id, info)
 
             return {"success": True, "session": session_data}
         except Exception as e:
@@ -289,9 +367,12 @@ class PDFStudioHTTPHandler(SimpleHTTPRequestHandler):
                 source_id = query_params.get("sourceId", [None])[0]
                 page_index = int(query_params.get("pageIndex", [0])[0])
 
-                if not source_id or source_id not in self.api_instance.source_cache:
-                    self.send_error(HTTPStatus.NOT_FOUND, "Document source not found")
+                if not source_id:
+                    self.send_error(HTTPStatus.BAD_REQUEST, "Missing sourceId")
                     return
+
+                if source_id not in self.api_instance.source_cache:
+                    self.api_instance.ensure_source_loaded(source_id)
 
                 png_bytes = self.api_instance.get_thumbnail_png(source_id, page_index)
                 if png_bytes is None:

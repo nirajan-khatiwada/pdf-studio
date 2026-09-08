@@ -149,12 +149,10 @@ async function executeSaveSession() {
   const payload = getSessionPayload();
   const jsonStr = JSON.stringify(payload);
 
-  if (jsonStr.length < 500000) {
-    try {
-      localStorage.setItem('pdf_studio_session', jsonStr);
-    } catch (err) {
-      // quota limit fallback
-    }
+  try {
+    localStorage.setItem('pdf_studio_session', jsonStr);
+  } catch (err) {
+    // LocalStorage quota fallback
   }
 
   try {
@@ -189,6 +187,16 @@ async function loadSavedSession() {
       if (localStr) {
         const parsed = JSON.parse(localStr);
         if (parsed && Array.isArray(parsed.pages) && parsed.pages.length > 0) {
+          // Immediately sync with backend so backend warms up source document cache BEFORE thumbnails render
+          try {
+            await fetch('/api/save_session', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: localStr
+            });
+          } catch (syncErr) {
+            console.warn("Session sync to backend failed:", syncErr);
+          }
           applySessionData(parsed);
           sessionRestored = true;
         }
@@ -1516,6 +1524,41 @@ function createPageSlot(page, index) {
   if (page.rotation !== 0) {
     img.style.transform = `rotate(${page.rotation}deg)`;
   }
+
+  // Robust thumbnail retry and fallback placeholder: NEVER display broken image icon
+  img.onerror = () => {
+    const retryCount = parseInt(img.dataset.retries || '0', 10);
+    if (retryCount < 2 && page.thumbnail && page.thumbnail.startsWith('/api/thumbnail')) {
+      img.dataset.retries = String(retryCount + 1);
+      setTimeout(() => {
+        img.src = `${page.thumbnail}&_retry=${Date.now()}`;
+      }, 500 * (retryCount + 1));
+      return;
+    }
+
+    const fallbackCanvas = document.createElement('canvas');
+    const w = 200;
+    const h = (page.effective_height && page.effective_width)
+      ? Math.round(200 * (page.effective_height / page.effective_width))
+      : 260;
+    fallbackCanvas.width = w;
+    fallbackCanvas.height = h;
+    const ctx = fallbackCanvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(1, 1, w - 2, h - 2);
+      ctx.fillStyle = '#64748b';
+      ctx.font = '600 13px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`Page ${index + 1}`, w / 2, h / 2);
+    }
+    img.src = fallbackCanvas.toDataURL('image/png');
+  };
+
   imgWrapper.appendChild(img);
 
   // Live miniature overlays layer so image and text additions on blank (and any) pages show instantly!
