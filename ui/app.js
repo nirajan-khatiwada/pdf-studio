@@ -2417,19 +2417,40 @@ async function handleExport() {
     return;
   }
 
+  let targetFilename = "Exported_Document.pdf";
+  let isNativeSaved = false;
+
+  // Prompt native OS save file dialog before compilation
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.save_native_pdf_dialog) {
+    try {
+      const chosenPath = await window.pywebview.api.save_native_pdf_dialog(targetFilename);
+      if (!chosenPath) {
+        // User cancelled native save dialog
+        return;
+      }
+      if (Array.isArray(chosenPath)) {
+        if (chosenPath.length > 0 && typeof chosenPath[0] === 'string' && chosenPath[0].trim()) {
+          targetFilename = chosenPath[0].trim();
+          isNativeSaved = true;
+        } else {
+          // User cancelled native save dialog
+          return;
+        }
+      } else if (typeof chosenPath === 'string' && chosenPath.trim()) {
+        targetFilename = chosenPath.trim();
+        isNativeSaved = true;
+      } else {
+        return;
+      }
+    } catch (dialogErr) {
+      console.warn("Native save dialog error, falling back to default export:", dialogErr);
+    }
+  }
+
   showToast("Compiling PDF document...", "info");
   els.btnExportPdf.disabled = true;
 
   try {
-    let targetFilename = "Exported_Document.pdf";
-
-    if (window.pywebview && window.pywebview.api && window.pywebview.api.save_native_pdf_dialog) {
-      const chosenPath = await window.pywebview.api.save_native_pdf_dialog(targetFilename);
-      if (chosenPath) {
-        targetFilename = chosenPath;
-      }
-    }
-
     const sourceBytesMap = {};
     for (const [id, doc] of Object.entries(state.sourcePdfs)) {
       if (doc.bytes_b64) {
@@ -2453,7 +2474,8 @@ async function handleExport() {
     if (data.success) {
       showToast(`Exported ${data.page_count} pages (${(data.file_size / 1024).toFixed(1)} KB)`, 'success');
 
-      if (data.pdf_base64) {
+      // Only trigger browser file download link if NOT already saved directly to disk natively
+      if (!isNativeSaved && data.pdf_base64) {
         const link = document.createElement('a');
         link.href = `data:application/pdf;base64,${data.pdf_base64}`;
         link.download = data.output_name || 'Exported_Document.pdf';

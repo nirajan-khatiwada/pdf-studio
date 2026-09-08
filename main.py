@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import socket
+import base64
 import argparse
 import threading
 import webbrowser
@@ -42,8 +43,10 @@ class DesktopBridge:
             return []
         try:
             import webview
+            dialog_type = getattr(webview, 'FileDialog', None)
+            open_dialog = dialog_type.OPEN if dialog_type else getattr(webview, 'OPEN_DIALOG', 10)
             files = window.create_file_dialog(
-                webview.OPEN_DIALOG,
+                open_dialog,
                 allow_multiple=True,
                 file_types=("PDF Files (*.pdf)", "All Files (*.*)")
             )
@@ -59,8 +62,10 @@ class DesktopBridge:
             return None
         try:
             import webview
+            dialog_type = getattr(webview, 'FileDialog', None)
+            open_dialog = dialog_type.OPEN if dialog_type else getattr(webview, 'OPEN_DIALOG', 10)
             files = window.create_file_dialog(
-                webview.OPEN_DIALOG,
+                open_dialog,
                 allow_multiple=False,
                 file_types=("Image Files (*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif)", "All Files (*.*)")
             )
@@ -87,19 +92,32 @@ class DesktopBridge:
             print(f"Error opening native image dialog: {e}")
             return None
 
-    def save_native_pdf_dialog(self, default_filename: str = "Exported_Document.pdf"):
-        """Open native OS file save dialog."""
+    def save_native_pdf_dialog(self, default_filename: str = "Exported_Document.pdf") -> Optional[str]:
+        """Open native OS file save dialog and return clean path string."""
         window = self._get_window()
         if not window:
             return None
         try:
             import webview
+            dialog_type = getattr(webview, 'FileDialog', None)
+            save_dialog = dialog_type.SAVE if dialog_type else getattr(webview, 'SAVE_DIALOG', 20)
             path = window.create_file_dialog(
-                webview.SAVE_DIALOG,
+                save_dialog,
                 save_filename=default_filename,
-                file_types=("PDF Files (*.pdf)",)
+                file_types=("PDF Files (*.pdf)", "All Files (*.*)")
             )
-            return path
+            if not path:
+                return None
+            if isinstance(path, (list, tuple)):
+                if len(path) == 0:
+                    return None
+                path = path[0]
+            if isinstance(path, str):
+                path = path.strip()
+                if path and not path.lower().endswith(".pdf"):
+                    path += ".pdf"
+                return path if path else None
+            return None
         except Exception as e:
             print(f"Error opening save file dialog: {e}")
             return None

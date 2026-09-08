@@ -113,7 +113,7 @@ class PDFStudioAPI:
     def export_document(
         self,
         manifest: list,
-        output_name: Optional[str] = None,
+        output_name: Optional[Any] = None,
         custom_source_bytes: Optional[Dict[str, str]] = None
     ) -> Dict[str, Any]:
         if custom_source_bytes:
@@ -122,13 +122,25 @@ class PDFStudioAPI:
                     b64_str = b64_str.split(",", 1)[1]
                 self.source_cache[s_id] = base64.b64decode(b64_str)
 
-        if not output_name:
+        # Unpack list/tuple if frontend passed an array or tuple
+        if isinstance(output_name, (list, tuple)):
+            output_name = output_name[0] if len(output_name) > 0 else "Exported_Document.pdf"
+
+        if not output_name or not isinstance(output_name, str) or not output_name.strip():
             output_name = "Exported_Document.pdf"
+        else:
+            output_name = output_name.strip()
+
+        if not output_name.lower().endswith(".pdf"):
+            output_name += ".pdf"
 
         if not os.path.isabs(output_name):
             output_path = os.path.join(self.pdf_dir, output_name)
         else:
             output_path = output_name
+
+        # Ensure destination directory exists
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
         result = self.engine.export_pdf(manifest, self.source_cache, output_path)
         with open(output_path, "rb") as f:
@@ -355,6 +367,8 @@ class PDFStudioHTTPHandler(SimpleHTTPRequestHandler):
             elif path == "/api/export":
                 manifest = body.get("manifest", [])
                 out_name = body.get("outputPath") or body.get("outputName")
+                if isinstance(out_name, (list, tuple)):
+                    out_name = out_name[0] if len(out_name) > 0 else "Exported_Document.pdf"
                 custom_sources = body.get("sourceBytes")
                 res = self.api_instance.export_document(manifest, out_name, custom_sources)
                 return self._send_json(res)
