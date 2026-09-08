@@ -284,6 +284,49 @@ class PDFEngine:
             "overlays": [],
         }
 
+    def render_composite_page_thumbnail(
+        self,
+        page_info: Dict[str, Any],
+        source_pdfs_bytes: Optional[Dict[str, bytes]] = None
+    ) -> str:
+        """
+        Render a composite thumbnail PNG with all text and image overlays baked in.
+        Returns a base64 dataUrl: 'data:image/png;base64,...'
+        """
+        is_blank = page_info.get("is_blank", False)
+        src_id = page_info.get("source_pdf_id")
+        src_page_idx = int(page_info.get("source_page_index", 0))
+        width = float(page_info.get("width", 595.28))
+        height = float(page_info.get("height", 841.89))
+        rotation = int(page_info.get("rotation", 0)) % 360
+        overlays = page_info.get("overlays", [])
+
+        doc = pymupdf.open()
+        try:
+            if is_blank or src_id == "blank" or not source_pdfs_bytes or src_id not in source_pdfs_bytes:
+                p = doc.new_page(width=width, height=height)
+                p.draw_rect(pymupdf.Rect(0, 0, width, height), color=(0.92, 0.92, 0.92), fill=(1.0, 1.0, 1.0))
+                p.set_rotation(rotation)
+            else:
+                src_doc = pymupdf.open(stream=source_pdfs_bytes[src_id], filetype="pdf")
+                if 0 <= src_page_idx < len(src_doc):
+                    doc.insert_pdf(src_doc, from_page=src_page_idx, to_page=src_page_idx)
+                    p = doc[-1]
+                    p.set_rotation(rotation)
+                else:
+                    p = doc.new_page(width=width, height=height)
+                    p.set_rotation(rotation)
+                src_doc.close()
+
+            if overlays:
+                self._apply_overlays_to_page(p, overlays)
+
+            pix = p.get_pixmap(dpi=72)
+            png_bytes = pix.tobytes("png")
+            return "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
+        finally:
+            doc.close()
+
     def export_pdf(
         self,
         page_manifest: List[Dict[str, Any]],

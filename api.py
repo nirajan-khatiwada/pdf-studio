@@ -144,6 +144,72 @@ class PDFStudioAPI:
             "pdf_base64": out_b64,
         }
 
+    def save_session(self, session_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Save workspace session to disk (.pdf_studio_session.json)."""
+        session_file = os.path.join(self.working_dir, ".pdf_studio_session.json")
+        try:
+            with open(session_file, "w", encoding="utf-8") as f:
+                json.dump(session_data, f, ensure_ascii=False, indent=2)
+            return {"success": True, "saved": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def load_session(self) -> Dict[str, Any]:
+        """Load workspace session from disk and ensure source documents are cached."""
+        session_file = os.path.join(self.working_dir, ".pdf_studio_session.json")
+        if not os.path.exists(session_file):
+            return {"success": True, "session": None}
+
+        try:
+            with open(session_file, "r", encoding="utf-8") as f:
+                session_data = json.load(f)
+
+            # Re-populate source_cache for referenced documents if files exist on disk
+            source_meta = session_data.get("sourcePdfs", {})
+            for src_id, info in source_meta.items():
+                if src_id not in self.source_cache:
+                    path = info.get("path")
+                    name = info.get("name")
+                    target_path = None
+                    if path and os.path.exists(path):
+                        target_path = path
+                    elif name:
+                        candidate_pdf = os.path.join(self.pdf_dir, name)
+                        candidate_work = os.path.join(self.working_dir, name)
+                        if os.path.exists(candidate_pdf):
+                            target_path = candidate_pdf
+                        elif os.path.exists(candidate_work):
+                            target_path = candidate_work
+
+                    if target_path and os.path.exists(target_path):
+                        try:
+                            with open(target_path, "rb") as f:
+                                self.source_cache[src_id] = f.read()
+                        except Exception as read_err:
+                            print(f"Warning: could not restore source cache for {src_id}: {read_err}")
+
+            return {"success": True, "session": session_data}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def clear_session(self) -> Dict[str, Any]:
+        """Clear the saved workspace session file."""
+        session_file = os.path.join(self.working_dir, ".pdf_studio_session.json")
+        if os.path.exists(session_file):
+            try:
+                os.remove(session_file)
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+        return {"success": True}
+
+    def composite_thumbnail(self, page_info: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate a composite thumbnail with baked overlays."""
+        try:
+            thumb_url = self.engine.render_composite_page_thumbnail(page_info, self.source_cache)
+            return {"success": True, "thumbnail": thumb_url}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
 
 class PDFStudioHTTPHandler(SimpleHTTPRequestHandler):
     """HTTP Request Handler serving UI assets and JSON API."""
@@ -232,6 +298,13 @@ class PDFStudioHTTPHandler(SimpleHTTPRequestHandler):
                 self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(e))
             return
 
+        if path == "/api/load_session":
+            try:
+                res = self.api_instance.load_session()
+                self._send_json(res)
+            except Exception as e:
+                self._send_error_json(str(e))
+            return
 
         # Default: serve static files from ui_dir
         super().do_GET()
@@ -284,6 +357,19 @@ class PDFStudioHTTPHandler(SimpleHTTPRequestHandler):
                 out_name = body.get("outputPath") or body.get("outputName")
                 custom_sources = body.get("sourceBytes")
                 res = self.api_instance.export_document(manifest, out_name, custom_sources)
+                return self._send_json(res)
+
+            elif path == "/api/save_session":
+                res = self.api_instance.save_session(body)
+                return self._send_json(res)
+
+            elif path == "/api/clear_session":
+                res = self.api_instance.clear_session()
+                return self._send_json(res)
+
+            elif path == "/api/composite_thumbnail":
+                page_info = body.get("page", {})
+                res = self.api_instance.composite_thumbnail(page_info)
                 return self._send_json(res)
 
             else:

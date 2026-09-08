@@ -99,10 +99,121 @@ let lastPageClickTime = 0;
 let lastPageClickPageId = null;
 let lastPasteHandledTime = 0;
 
+// Session Persistence & Auto-Save
+let saveSessionTimeout = null;
+
+function saveSessionDebounced() {
+  clearTimeout(saveSessionTimeout);
+  saveSessionTimeout = setTimeout(() => {
+    executeSaveSession();
+  }, 300);
+}
+
+function getSessionPayload() {
+  return {
+    version: 1,
+    timestamp: Date.now(),
+    pages: state.pages,
+    sourcePdfs: state.sourcePdfs,
+    zoom: state.zoom,
+    selectedPageId: state.selectedPageId,
+  };
+}
+
+async function executeSaveSession() {
+  const payload = getSessionPayload();
+  const jsonStr = JSON.stringify(payload);
+
+  try {
+    localStorage.setItem('pdf_studio_session', jsonStr);
+  } catch (err) {
+    // quota limit fallback
+  }
+
+  try {
+    await fetch('/api/save_session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: jsonStr,
+      keepalive: true
+    });
+  } catch (err) {
+    console.warn('Auto-save session to backend failed:', err);
+  }
+}
+
+async function loadSavedSession() {
+  let sessionRestored = false;
+
+  try {
+    const res = await fetch('/api/load_session');
+    const data = await res.json();
+    if (data.success && data.session && Array.isArray(data.session.pages) && data.session.pages.length > 0) {
+      applySessionData(data.session);
+      sessionRestored = true;
+    }
+  } catch (err) {
+    console.warn('Backend load_session error:', err);
+  }
+
+  if (!sessionRestored) {
+    try {
+      const localStr = localStorage.getItem('pdf_studio_session');
+      if (localStr) {
+        const parsed = JSON.parse(localStr);
+        if (parsed && Array.isArray(parsed.pages) && parsed.pages.length > 0) {
+          applySessionData(parsed);
+          sessionRestored = true;
+        }
+      }
+    } catch (localErr) {
+      console.warn('localStorage session parse error:', localErr);
+    }
+  }
+
+  if (sessionRestored) {
+    renderWorkspace();
+    updateSidebarUploadedDocuments();
+    showToast(`Restored session (${state.pages.length} pages)`, 'info');
+  } else {
+    renderWorkspace();
+  }
+
+  return sessionRestored;
+}
+
+function applySessionData(session) {
+  state.pages = session.pages || [];
+  state.sourcePdfs = session.sourcePdfs || {};
+  if (typeof session.zoom === 'number' && session.zoom >= 0.5 && session.zoom <= 2.0) {
+    state.zoom = session.zoom;
+    els.zoomLevelDisplay.textContent = `${Math.round(state.zoom * 100)}%`;
+  }
+  if (session.selectedPageId && state.pages.some(p => p.id === session.selectedPageId)) {
+    state.selectedPageId = session.selectedPageId;
+  } else if (state.pages.length > 0) {
+    state.selectedPageId = state.pages[0].id;
+  }
+}
+
+window.addEventListener('beforeunload', () => {
+  const payload = getSessionPayload();
+  const jsonStr = JSON.stringify(payload);
+  try {
+    localStorage.setItem('pdf_studio_session', jsonStr);
+  } catch (e) {}
+
+  if (navigator.sendBeacon) {
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    navigator.sendBeacon('/api/save_session', blob);
+  }
+});
+
 // Initialize
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   initEventListeners();
   loadDirectoryTree();
+  await loadSavedSession();
   updateStatus();
 });
 
@@ -343,6 +454,7 @@ function initEventListeners() {
     state.selectedPageId = itemToMove.id;
 
     movePageCardInDOM(fromIdx, destIndex);
+    saveSessionDebounced();
     showToast(`Moved Page ${fromIdx + 1} to position ${destIndex + 1}`, 'success');
   });
 
@@ -400,7 +512,7 @@ function initEventListeners() {
   els.btnSaveDialog.addEventListener('click', saveAnnotationDialog);
 
   els.btnAddTextBox.addEventListener('click', addTextBoxInEditor);
-  els.btnAddImageOverlay.addEventListener('click', () => els.imageOverlayInput.click());
+  els.btnAddImageOverlay.addEventListener('click', handleAddImageOverlayClick);
   els.imageOverlayInput.addEventListener('change', handleImageOverlayFile);
 
   els.editorFontSize.addEventListener('change', (e) => {
@@ -499,6 +611,7 @@ function undo() {
   state.pages = state.history.pop();
   renderWorkspace();
   updateUndoRedoButtons();
+  saveSessionDebounced();
   showToast("Undid last action");
 }
 
@@ -508,6 +621,7 @@ function redo() {
   state.pages = state.future.pop();
   renderWorkspace();
   updateUndoRedoButtons();
+  saveSessionDebounced();
   showToast("Redid action");
 }
 
@@ -766,6 +880,8 @@ function addDocumentPagesToWorkspace(doc) {
     state.selectedPageId = state.pages[0].id;
   }
   renderWorkspace();
+  updateSidebarUploadedDocuments();
+  saveSessionDebounced();
 }
 
 function handleClearAll() {
@@ -775,7 +891,12 @@ function handleClearAll() {
     state.pages = [];
     state.sourcePdfs = {};
     state.selectedPageId = null;
+    try {
+      localStorage.removeItem('pdf_studio_session');
+    } catch (e) {}
+    fetch('/api/clear_session', { method: 'POST' }).catch(() => {});
     renderWorkspace();
+    updateSidebarUploadedDocuments();
     showToast("Workspace cleared");
   }
 }
@@ -815,6 +936,7 @@ async function addBlankPage(afterIndex = null) {
       state.pages.splice(insertPos, 0, data.page);
       state.selectedPageId = data.page.id;
       renderWorkspace();
+      saveSessionDebounced();
       showToast(`Inserted blank ${refOrientation} page`, 'success');
     }
   } catch (err) {
@@ -833,6 +955,8 @@ function removePage(index) {
 
   if (state.pages.length === 0) {
     renderWorkspace();
+    updateSidebarUploadedDocuments();
+    saveSessionDebounced();
     showToast(`Removed Page ${index + 1}`);
     return;
   }
@@ -861,6 +985,7 @@ function removePage(index) {
   } else {
     renderWorkspace();
   }
+  saveSessionDebounced();
   showToast(`Removed Page ${index + 1}`);
 }
 
@@ -1052,6 +1177,8 @@ function executeRemovePages() {
   // If workspace is now empty, render empty state
   if (state.pages.length === 0) {
     renderWorkspace();
+    updateSidebarUploadedDocuments();
+    saveSessionDebounced();
     showToast(`Removed all ${removedCount} pages`, 'success');
     return;
   }
@@ -1088,6 +1215,7 @@ function executeRemovePages() {
   els.docTitleDisplay.textContent = `Document (${state.pages.length} pages)`;
   updateSidebarUploadedDocuments();
   updateStatus();
+  saveSessionDebounced();
 
   showToast(`Removed ${removedCount} page${removedCount > 1 ? 's' : ''}`, 'success');
 }
@@ -1126,6 +1254,7 @@ function rotatePage(index, degrees) {
     renderWorkspace();
   }
 
+  saveSessionDebounced();
   showToast(`Rotated Page ${index + 1} to ${page.rotation}°`);
 }
 
@@ -1320,10 +1449,10 @@ function createPageSlot(page, index) {
   thumbBox.style.height = `${Math.round(240 * state.zoom)}px`;
 
   const imgWrapper = document.createElement('div');
+  imgWrapper.className = 'card-img-wrapper';
   imgWrapper.style.position = 'relative';
-  imgWrapper.style.display = 'flex';
-  imgWrapper.style.alignItems = 'center';
-  imgWrapper.style.justifyContent = 'center';
+  imgWrapper.style.display = 'inline-block';
+  imgWrapper.style.lineHeight = '0';
   imgWrapper.style.maxWidth = '100%';
   imgWrapper.style.maxHeight = '100%';
   imgWrapper.style.pointerEvents = 'none';
@@ -1334,19 +1463,54 @@ function createPageSlot(page, index) {
   img.decoding = 'async';
   img.alt = `Page ${index + 1}`;
   img.draggable = false;
-  img.setAttribute('draggable', 'false');
+  if (img.setAttribute) {
+    img.setAttribute('draggable', 'false');
+  }
   img.style.userSelect = 'none';
   img.style.webkitUserDrag = 'none';
+  img.style.display = 'block';
+  img.style.maxWidth = '100%';
+  img.style.maxHeight = `${Math.round(236 * state.zoom)}px`;
+  img.style.objectFit = 'contain';
   if (page.rotation !== 0) {
     img.style.transform = `rotate(${page.rotation}deg)`;
   }
   imgWrapper.appendChild(img);
 
-  // Badge showing count of overlays if present
+  // Live miniature overlays layer so image and text additions on blank (and any) pages show instantly!
   if (page.overlays && page.overlays.length > 0) {
+    const miniLayer = document.createElement('div');
+    miniLayer.className = 'card-mini-overlays-layer';
+
+    page.overlays.forEach(ov => {
+      const ovEl = document.createElement('div');
+      ovEl.className = `card-mini-overlay-item ${ov.type === 'text' ? 'text-item' : 'image-item'}`;
+      ovEl.style.left = `${ov.x}%`;
+      ovEl.style.top = `${ov.y}%`;
+      ovEl.style.width = `${ov.width}%`;
+      ovEl.style.height = `${ov.height}%`;
+
+      if (ov.type === 'image' && ov.imageUrl) {
+        const miniImg = document.createElement('img');
+        miniImg.src = ov.imageUrl;
+        miniImg.draggable = false;
+        ovEl.appendChild(miniImg);
+      } else if (ov.type === 'text' && ov.text) {
+        ovEl.style.fontSize = `${Math.max(6, Math.round((ov.fontSize || 16) * 0.22 * state.zoom))}px`;
+        ovEl.style.color = ov.color || '#000000';
+        ovEl.style.fontWeight = ov.isBold ? '700' : '400';
+        ovEl.style.fontStyle = ov.isItalic ? 'italic' : 'normal';
+        ovEl.textContent = ov.text;
+      }
+      miniLayer.appendChild(ovEl);
+    });
+
+    imgWrapper.appendChild(miniLayer);
+
+    // Badge showing count of overlays if present
     const ovBadge = document.createElement('div');
-    ovBadge.style.cssText = 'position: absolute; bottom: 4px; right: 4px; background: #09090b; color: #fff; font-size: 9.5px; padding: 2px 5px; border-radius: 3px; font-weight: 500; display: flex; align-items: center; gap: 3px; pointer-events: none;';
-    ovBadge.innerHTML = `<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> ${page.overlays.length}`;
+    ovBadge.style.cssText = 'position: absolute; bottom: 4px; right: 4px; background: rgba(9, 9, 11, 0.85); color: #fff; font-size: 9px; padding: 2px 5px; border-radius: 3px; font-weight: 500; display: flex; align-items: center; gap: 3px; pointer-events: none; z-index: 5;';
+    ovBadge.innerHTML = `<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> ${page.overlays.length}`;
     imgWrapper.appendChild(ovBadge);
   }
 
@@ -1519,6 +1683,7 @@ function setZoom(newZoom) {
   state.zoom = Math.max(0.6, Math.min(1.5, Math.round(newZoom * 10) / 10));
   els.zoomLevelDisplay.textContent = `${Math.round(state.zoom * 100)}%`;
   renderWorkspace();
+  saveSessionDebounced();
 }
 
 function updateStatus() {
@@ -1582,6 +1747,14 @@ async function openAnnotationDialog(pageId) {
 }
 
 function closeAnnotationDialog() {
+  if (state.editor.pageId) {
+    const page = state.pages.find(p => p.id === state.editor.pageId);
+    if (page && state.editor.overlays) {
+      page.overlays = JSON.parse(JSON.stringify(state.editor.overlays));
+      renderWorkspace();
+      saveSessionDebounced();
+    }
+  }
   els.annotationDialog.classList.remove('open');
   state.editor.pageId = null;
   state.editor.overlays = [];
@@ -1594,7 +1767,20 @@ function saveAnnotationDialog() {
   if (page) {
     page.overlays = JSON.parse(JSON.stringify(state.editor.overlays));
     renderWorkspace();
+    saveSessionDebounced();
     showToast(`Saved annotations for Page ${state.pages.indexOf(page) + 1}`, 'success');
+
+    // Asynchronously request baked composite thumbnail from backend
+    fetch('/api/composite_thumbnail', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ page: page })
+    }).then(res => res.json()).then(data => {
+      if (data.success && data.thumbnail) {
+        page.thumbnail = data.thumbnail;
+        saveSessionDebounced();
+      }
+    }).catch(() => {});
   }
   closeAnnotationDialog();
 }
@@ -1621,6 +1807,14 @@ function renderEditorOverlays() {
 
       textarea.addEventListener('input', (e) => {
         item.text = e.target.value;
+        if (state.editor.pageId) {
+          const page = state.pages.find(p => p.id === state.editor.pageId);
+          if (page) {
+            page.overlays = JSON.parse(JSON.stringify(state.editor.overlays));
+            renderWorkspace();
+            saveSessionDebounced();
+          }
+        }
       });
 
       textarea.addEventListener('focus', () => selectEditorOverlay(item.id));
@@ -1680,6 +1874,14 @@ function applySelectedTextProp(prop, val) {
   if (item && item.type === 'text') {
     item[prop] = val;
     renderEditorOverlays();
+    if (state.editor.pageId) {
+      const page = state.pages.find(p => p.id === state.editor.pageId);
+      if (page) {
+        page.overlays = JSON.parse(JSON.stringify(state.editor.overlays));
+        renderWorkspace();
+        saveSessionDebounced();
+      }
+    }
   }
 }
 
@@ -1701,13 +1903,68 @@ function addTextBoxInEditor() {
   state.editor.overlays.push(newText);
   selectEditorOverlay(newText.id);
   renderEditorOverlays();
+  if (state.editor.pageId) {
+    const page = state.pages.find(p => p.id === state.editor.pageId);
+    if (page) {
+      page.overlays = JSON.parse(JSON.stringify(state.editor.overlays));
+      renderWorkspace();
+      saveSessionDebounced();
+    }
+  }
+}
+
+async function handleAddImageOverlayClick() {
+  // 1. Try pywebview native desktop dialog first
+  if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_native_image_dialog === 'function') {
+    try {
+      const res = await window.pywebview.api.open_native_image_dialog();
+      if (res && res.dataUrl) {
+        await insertImageOverlayFromDataUrl(res.dataUrl);
+        return;
+      } else if (res === null) {
+        return;
+      }
+    } catch (err) {
+      console.warn('Native image dialog error, falling back to dynamic input:', err);
+    }
+  }
+
+  // 2. Web browser or fallback mode: use fresh dynamic input
+  triggerFreshImageFileInput();
+}
+
+function triggerFreshImageFileInput() {
+  const tempInput = document.createElement('input');
+  tempInput.type = 'file';
+  tempInput.accept = 'image/png, image/jpeg, image/webp, image/gif, image/bmp, image/*';
+  tempInput.style.position = 'fixed';
+  tempInput.style.top = '-1000px';
+  tempInput.style.left = '-1000px';
+  tempInput.style.opacity = '0';
+  document.body.appendChild(tempInput);
+
+  tempInput.addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (file) {
+      await insertImageOverlayFromFile(file);
+    }
+    setTimeout(() => {
+      if (tempInput.parentNode) {
+        tempInput.parentNode.removeChild(tempInput);
+      }
+    }, 100);
+  }, { once: true });
+
+  tempInput.click();
 }
 
 function handleImageOverlayFile(e) {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
   insertImageOverlayFromFile(file);
-  els.imageOverlayInput.value = '';
+  if (els.imageOverlayInput) {
+    els.imageOverlayInput.value = '';
+  }
 }
 
 function handlePageGridDblClick(e) {
@@ -1768,8 +2025,16 @@ function insertImageOverlayFromDataUrl(dataUrl) {
       state.editor.overlays.push(newImg);
       selectEditorOverlay(newImg.id);
       renderEditorOverlays();
+      if (state.editor.pageId) {
+        const page = state.pages.find(p => p.id === state.editor.pageId);
+        if (page) {
+          page.overlays = JSON.parse(JSON.stringify(state.editor.overlays));
+          renderWorkspace();
+          saveSessionDebounced();
+        }
+      }
       lastPasteHandledTime = Date.now();
-      showToast("Pasted image overlay onto page", "success");
+      showToast("Added image overlay to page", "success");
       resolve(newImg);
     };
     img.src = dataUrl;
@@ -1824,6 +2089,14 @@ function insertTextOverlayFromClipboard(text) {
   state.editor.overlays.push(newText);
   selectEditorOverlay(newText.id);
   renderEditorOverlays();
+  if (state.editor.pageId) {
+    const page = state.pages.find(p => p.id === state.editor.pageId);
+    if (page) {
+      page.overlays = JSON.parse(JSON.stringify(state.editor.overlays));
+      renderWorkspace();
+      saveSessionDebounced();
+    }
+  }
 
   setTimeout(() => {
     const textarea = els.editorOverlaysLayer.querySelector(`.sheet-overlay[data-id="${newText.id}"] textarea`);
@@ -1964,6 +2237,14 @@ function deleteOverlay(id) {
     state.editor.selectedOverlayId = null;
   }
   renderEditorOverlays();
+  if (state.editor.pageId) {
+    const page = state.pages.find(p => p.id === state.editor.pageId);
+    if (page) {
+      page.overlays = JSON.parse(JSON.stringify(state.editor.overlays));
+      renderWorkspace();
+      saveSessionDebounced();
+    }
+  }
 }
 
 function makeMovable(element, item) {
@@ -2003,6 +2284,14 @@ function makeMovable(element, item) {
       isDragging = false;
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
+      if (state.editor.pageId) {
+        const page = state.pages.find(p => p.id === state.editor.pageId);
+        if (page) {
+          page.overlays = JSON.parse(JSON.stringify(state.editor.overlays));
+          renderWorkspace();
+          saveSessionDebounced();
+        }
+      }
     };
 
     window.addEventListener('mousemove', onMouseMove);
@@ -2044,6 +2333,14 @@ function makeResizable(element, handle, item) {
       isResizing = false;
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
+      if (state.editor.pageId) {
+        const page = state.pages.find(p => p.id === state.editor.pageId);
+        if (page) {
+          page.overlays = JSON.parse(JSON.stringify(state.editor.overlays));
+          renderWorkspace();
+          saveSessionDebounced();
+        }
+      }
     };
 
     window.addEventListener('mousemove', onMouseMove);

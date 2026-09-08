@@ -53,7 +53,7 @@ class DesktopBridge:
             return []
 
     def open_native_image_dialog(self):
-        """Open native OS file picker to select an image."""
+        """Open native OS file picker to select an image and return as dataUrl."""
         window = self._get_window()
         if not window:
             return None
@@ -62,9 +62,27 @@ class DesktopBridge:
             files = window.create_file_dialog(
                 webview.OPEN_DIALOG,
                 allow_multiple=False,
-                file_types=("Image Files (*.png;*.jpg;*.jpeg)", "All Files (*.*)")
+                file_types=("Image Files (*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif)", "All Files (*.*)")
             )
-            return files[0] if files else None
+            if files and len(files) > 0:
+                p = files[0]
+                if os.path.exists(p):
+                    with open(p, "rb") as f:
+                        data = f.read()
+                    ext = os.path.splitext(p)[1].lower().replace(".", "")
+                    mime = "image/png"
+                    if ext in ["jpg", "jpeg"]:
+                        mime = "image/jpeg"
+                    elif ext in ["webp", "gif", "bmp"]:
+                        mime = f"image/{ext}"
+                    b64 = base64.b64encode(data).decode("ascii")
+                    return {
+                        "success": True,
+                        "dataUrl": f"data:{mime};base64,{b64}",
+                        "filename": os.path.basename(p),
+                        "path": p
+                    }
+            return None
         except Exception as e:
             print(f"Error opening native image dialog: {e}")
             return None
