@@ -458,6 +458,11 @@ body {
   position: relative;
   display: flex;
   align-items: center;
+  z-index: 1;
+}
+
+.page-slot:hover {
+  z-index: 20;
 }
 
 /* Single Global Floating Insertion Indicator Bar */
@@ -698,16 +703,24 @@ body.is-reordering-cards .page-card:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  z-index: 25;
+  cursor: pointer !important;
+  z-index: 30;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.gutter-add-btn * {
+  pointer-events: none !important;
+  cursor: pointer !important;
 }
 
 .gutter-add-btn:hover {
   transform: translateY(-50%) scale(1.15);
   border-color: #cbd5e1;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  cursor: pointer !important;
 }
 
 /* Status Bar */
@@ -741,18 +754,33 @@ body.is-reordering-cards .page-card:hover {
   inset: 0;
   background-color: rgba(9, 9, 11, 0.55);
   backdrop-filter: blur(2px);
-  display: flex;
+  display: none !important;
   align-items: center;
   justify-content: center;
   z-index: 100;
   opacity: 0;
-  pointer-events: none;
+  pointer-events: none !important;
+  visibility: hidden !important;
   transition: opacity 0.18s ease;
 }
 
 .dialog-backdrop.open {
+  display: flex !important;
   opacity: 1;
-  pointer-events: auto;
+  pointer-events: auto !important;
+  visibility: visible !important;
+}
+
+.dialog-backdrop:not(.open) {
+  display: none !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+
+.dialog-backdrop:not(.open) * {
+  display: none !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
 }
 
 .dialog-content {
@@ -895,7 +923,7 @@ body.is-reordering-cards .page-card:hover {
   left: 0;
   right: 0;
   bottom: 0;
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 .sheet-overlay {
@@ -905,6 +933,7 @@ body.is-reordering-cards .page-card:hover {
   display: flex;
   align-items: center;
   justify-content: center;
+  pointer-events: auto;
 }
 
 .sheet-overlay.active {

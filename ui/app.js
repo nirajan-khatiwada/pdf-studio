@@ -1613,6 +1613,12 @@ function createPageSlot(page, index) {
       <line x1="14.2" y1="16.5" x2="18.8" y2="16.5" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
     </svg>
   `;
+  gutterBtn.addEventListener('mouseenter', () => {
+    card.draggable = false;
+  });
+  gutterBtn.addEventListener('mouseleave', () => {
+    if (!isDraggingCard) card.draggable = true;
+  });
   gutterBtn.addEventListener('mousedown', (e) => {
     e.stopPropagation();
   });
@@ -1796,8 +1802,16 @@ function closeAnnotationDialog() {
     }
   }
   els.annotationDialog.classList.remove('open');
+  if (els.editorOverlaysLayer) {
+    els.editorOverlaysLayer.innerHTML = '';
+  }
+  if (els.editorSheetImage) {
+    els.editorSheetImage.src = '';
+  }
   state.editor.pageId = null;
   state.editor.overlays = [];
+  state.editor.selectedOverlayId = null;
+  cleanupDragState();
 }
 
 function saveAnnotationDialog() {
@@ -1862,9 +1876,12 @@ function renderEditorOverlays() {
     } else if (item.type === 'image') {
       const img = document.createElement('img');
       img.src = item.imageUrl;
+      img.draggable = false;
       img.style.width = '100%';
       img.style.height = '100%';
       img.style.objectFit = 'contain';
+      img.style.userSelect = 'none';
+      img.style.webkitUserDrag = 'none';
       el.appendChild(img);
     }
 
@@ -2298,6 +2315,10 @@ function makeMovable(element, item) {
     }
     if (e.target.classList.contains('resize-handle') || e.target.classList.contains('delete-overlay-btn')) return;
 
+    if (e.target.tagName !== 'TEXTAREA') {
+      e.preventDefault();
+    }
+
     isDragging = true;
     startX = e.clientX;
     startY = e.clientY;
@@ -2345,6 +2366,7 @@ function makeResizable(element, handle, item) {
   let startWidth, startHeight;
 
   handle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
     e.stopPropagation();
     isResizing = true;
     startX = e.clientX;
