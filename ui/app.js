@@ -94,6 +94,22 @@ let isDraggingCard = false;
 let activeIndicatorEl = null;
 let currentRenderSequence = 0;
 
+function cleanupDragState() {
+  draggedPageIndex = null;
+  currentDropTargetIndex = null;
+  dropPosition = null;
+  isDraggingCard = false;
+  stopAutoScroll();
+  hideFloatingDropIndicator();
+  document.body.classList.remove('is-reordering-cards');
+  if (els.dropOverlay) {
+    els.dropOverlay.classList.remove('active');
+  }
+  document.querySelectorAll('.page-card.dragging').forEach(card => {
+    card.classList.remove('dragging');
+  });
+}
+
 // Double-Click & Smart Clipboard Paste State
 let lastPageClickTime = 0;
 let lastPageClickPageId = null;
@@ -110,11 +126,20 @@ function saveSessionDebounced() {
 }
 
 function getSessionPayload() {
+  const cleanSources = {};
+  for (const [id, doc] of Object.entries(state.sourcePdfs)) {
+    cleanSources[id] = {
+      name: doc.name,
+      path: doc.path || '',
+      page_count: doc.page_count
+    };
+  }
+
   return {
     version: 1,
     timestamp: Date.now(),
     pages: state.pages,
-    sourcePdfs: state.sourcePdfs,
+    sourcePdfs: cleanSources,
     zoom: state.zoom,
     selectedPageId: state.selectedPageId,
   };
@@ -124,10 +149,12 @@ async function executeSaveSession() {
   const payload = getSessionPayload();
   const jsonStr = JSON.stringify(payload);
 
-  try {
-    localStorage.setItem('pdf_studio_session', jsonStr);
-  } catch (err) {
-    // quota limit fallback
+  if (jsonStr.length < 500000) {
+    try {
+      localStorage.setItem('pdf_studio_session', jsonStr);
+    } catch (err) {
+      // quota limit fallback
+    }
   }
 
   try {
@@ -341,9 +368,12 @@ function initEventListeners() {
         e.preventDefault();
         openAnnotationDialog(state.selectedPageId);
       }
-    } else if (e.key === 'Escape' && els.annotationDialog.classList.contains('open')) {
-      e.preventDefault();
-      closeAnnotationDialog();
+    } else if (e.key === 'Escape') {
+      cleanupDragState();
+      if (els.annotationDialog.classList.contains('open')) {
+        e.preventDefault();
+        closeAnnotationDialog();
+      }
     } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
       // If focused inside an input or inside a text overlay textarea, let native browser paste handle text typing
       const activeEl = document.activeElement;
@@ -358,6 +388,12 @@ function initEventListeners() {
       }, 50);
     }
   });
+
+  // Global Drag & Mouse Safety Net: Guarantees drag state, overlays, and auto-scroll are always cleaned up
+  window.addEventListener('mouseup', cleanupDragState);
+  window.addEventListener('pointerup', cleanupDragState);
+  window.addEventListener('dragend', cleanupDragState);
+  window.addEventListener('blur', cleanupDragState);
 
   // Delegated Page Grid Drag & Drop (Butter-smooth, zero per-slot overhead)
   els.pageGrid.addEventListener('dragover', (e) => {
@@ -397,13 +433,14 @@ function initEventListeners() {
   });
 
   els.pageGrid.addEventListener('drop', (e) => {
-    if (draggedPageIndex === null) return;
+    if (draggedPageIndex === null) {
+      cleanupDragState();
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
-    stopAutoScroll();
-    hideFloatingDropIndicator();
-    document.body.classList.remove('is-reordering-cards');
 
+    const fromIdx = draggedPageIndex;
     const slot = e.target.closest('.page-slot');
     let targetIdx = currentDropTargetIndex;
     if (slot) {
@@ -425,8 +462,9 @@ function initEventListeners() {
       }
     }
 
+    cleanupDragState();
+
     if (targetIdx === null) return;
-    const fromIdx = draggedPageIndex;
 
     let destIndex;
     if (fromIdx < targetIdx) {
@@ -436,10 +474,6 @@ function initEventListeners() {
     }
 
     destIndex = Math.max(0, Math.min(destIndex, state.pages.length - 1));
-
-    draggedPageIndex = null;
-    currentDropTargetIndex = null;
-    isDraggingCard = false;
 
     if (fromIdx === destIndex) return;
 
@@ -493,12 +527,10 @@ function initEventListeners() {
 
   window.addEventListener('drop', (e) => {
     e.preventDefault();
-    stopAutoScroll();
-    hideFloatingDropIndicator();
-    document.body.classList.remove('is-reordering-cards');
-    if (els.dropOverlay) els.dropOverlay.classList.remove('active');
+    const hadCardDrag = isDraggingCard || draggedPageIndex !== null;
+    cleanupDragState();
 
-    if (isDraggingCard || draggedPageIndex !== null) {
+    if (hadCardDrag) {
       return;
     }
     if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
@@ -600,7 +632,7 @@ function clonePageState(pages) {
 // History
 function saveHistory() {
   state.history.push(clonePageState(state.pages));
-  if (state.history.length > 30) state.history.shift();
+  if (state.history.length > 20) state.history.shift();
   state.future = [];
   updateUndoRedoButtons();
 }
@@ -762,6 +794,7 @@ function updateSidebarUploadedDocuments() {
 }
 
 function removeSourceDocument(sourceId) {
+  cleanupDragState();
   saveHistory();
   state.pages = state.pages.filter(p => p.source_pdf_id !== sourceId);
   delete state.sourcePdfs[sourceId];
@@ -871,8 +904,8 @@ function addDocumentPagesToWorkspace(doc) {
   saveHistory();
   state.sourcePdfs[doc.source_id] = {
     name: doc.name,
-    page_count: doc.page_count,
-    bytes_b64: doc.bytes_b64
+    path: doc.path || '',
+    page_count: doc.page_count
   };
 
   state.pages = state.pages.concat(doc.pages);
@@ -887,6 +920,7 @@ function addDocumentPagesToWorkspace(doc) {
 function handleClearAll() {
   if (state.pages.length === 0) return;
   if (confirm("Clear all pages from workspace?")) {
+    cleanupDragState();
     saveHistory();
     state.pages = [];
     state.sourcePdfs = {};
@@ -901,8 +935,9 @@ function handleClearAll() {
   }
 }
 
-// Blank Page Insertion with Orientation Inheritance
+// Blank Page Insertion with Orientation Inheritance and Offline Canvas Fallback
 async function addBlankPage(afterIndex = null) {
+  cleanupDragState();
   saveHistory();
   let refWidth = 595.28;
   let refHeight = 841.89;
@@ -911,14 +946,59 @@ async function addBlankPage(afterIndex = null) {
 
   let insertPos = state.pages.length;
 
-  if (afterIndex !== null && afterIndex >= 0 && afterIndex < state.pages.length) {
+  if (typeof afterIndex === 'number' && !isNaN(afterIndex) && afterIndex >= 0 && afterIndex < state.pages.length) {
     const refPage = state.pages[afterIndex];
-    refWidth = refPage.width;
-    refHeight = refPage.height;
-    refRotation = refPage.rotation;
-    refOrientation = refPage.orientation;
-    insertPos = afterIndex + 1;
+    if (refPage) {
+      refWidth = refPage.width || 595.28;
+      refHeight = refPage.height || 841.89;
+      refRotation = refPage.rotation || 0;
+      refOrientation = refPage.orientation || (refWidth > refHeight ? "Landscape" : "Portrait");
+      insertPos = afterIndex + 1;
+    }
+  } else if (state.selectedPageId && state.pages.length > 0) {
+    const selIdx = state.pages.findIndex(p => p.id === state.selectedPageId);
+    if (selIdx !== -1) {
+      const refPage = state.pages[selIdx];
+      refWidth = refPage.width || 595.28;
+      refHeight = refPage.height || 841.89;
+      refRotation = refPage.rotation || 0;
+      refOrientation = refPage.orientation || (refWidth > refHeight ? "Landscape" : "Portrait");
+      insertPos = selIdx + 1;
+    }
   }
+
+  insertPos = Math.max(0, Math.min(state.pages.length, insertPos));
+
+  const createLocalBlankPage = () => {
+    const effW = (refRotation === 90 || refRotation === 270) ? refHeight : refWidth;
+    const effH = (refRotation === 90 || refRotation === 270) ? refWidth : refHeight;
+    const thumbCanvas = document.createElement('canvas');
+    thumbCanvas.width = 200;
+    thumbCanvas.height = Math.round(200 * (effH / effW));
+    const ctx = thumbCanvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, thumbCanvas.width, thumbCanvas.height);
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(1, 1, thumbCanvas.width - 2, thumbCanvas.height - 2);
+    }
+    return {
+      id: `blank_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      source_pdf_id: 'blank',
+      source_pdf_name: 'Blank Page',
+      source_page_index: -1,
+      width: Math.round(refWidth * 100) / 100,
+      height: Math.round(refHeight * 100) / 100,
+      rotation: refRotation,
+      effective_width: Math.round(effW * 100) / 100,
+      effective_height: Math.round(effH * 100) / 100,
+      orientation: refOrientation,
+      is_blank: true,
+      thumbnail: thumbCanvas.toDataURL('image/png'),
+      overlays: []
+    };
+  };
 
   try {
     const res = await fetch('/api/create_blank', {
@@ -938,14 +1018,24 @@ async function addBlankPage(afterIndex = null) {
       renderWorkspace();
       saveSessionDebounced();
       showToast(`Inserted blank ${refOrientation} page`, 'success');
+      return;
     }
   } catch (err) {
-    showToast(`Error: ${err.message}`, 'error');
+    console.warn("Backend create_blank fetch failed, using fallback:", err);
   }
+
+  // Fallback if backend failed or timed out
+  const fallbackPage = createLocalBlankPage();
+  state.pages.splice(insertPos, 0, fallbackPage);
+  state.selectedPageId = fallbackPage.id;
+  renderWorkspace();
+  saveSessionDebounced();
+  showToast(`Inserted blank ${refOrientation} page`, 'success');
 }
 
 // Remove and Rotate
 function removePage(index) {
+  cleanupDragState();
   if (index < 0 || index >= state.pages.length) return;
   saveHistory();
   const removed = state.pages.splice(index, 1)[0];
@@ -953,38 +1043,9 @@ function removePage(index) {
     state.selectedPageId = state.pages[index] ? state.pages[index].id : (state.pages[index - 1] ? state.pages[index - 1].id : null);
   }
 
-  if (state.pages.length === 0) {
-    renderWorkspace();
-    updateSidebarUploadedDocuments();
-    saveSessionDebounced();
-    showToast(`Removed Page ${index + 1}`);
-    return;
-  }
-
-  const slot = els.pageGrid.children[index];
-  if (slot) {
-    slot.remove();
-    // Re-index subsequent slots
-    for (let i = index; i < els.pageGrid.children.length; i++) {
-      const s = els.pageGrid.children[i];
-      s.dataset.index = i;
-      const c = s.querySelector('.page-card');
-      if (c) {
-        c.dataset.index = i;
-        const num = c.querySelector('.card-page-num');
-        if (num) num.textContent = i + 1;
-      }
-      const gutterBtn = s.querySelector('.gutter-add-btn');
-      if (gutterBtn && state.pages[i]) {
-        gutterBtn.title = `Insert blank ${state.pages[i].orientation} page after Page ${i + 1}`;
-      }
-    }
-    els.docTitleDisplay.textContent = `Document (${state.pages.length} pages)`;
-    updateSidebarUploadedDocuments();
-    updateStatus();
-  } else {
-    renderWorkspace();
-  }
+  renderWorkspace();
+  updateSidebarUploadedDocuments();
+  updateStatus();
   saveSessionDebounced();
   showToast(`Removed Page ${index + 1}`);
 }
@@ -1155,8 +1216,9 @@ function processRemovePagesInput() {
   }
 }
 
-// Instant in-place batch deletion (<5ms) without full grid destruction
+// Batch deletion with drag cleanup and clean state synchronization
 function executeRemovePages() {
+  cleanupDragState();
   const val = els.inputRemovePages.value.trim();
   const indices = parsePageRanges(val, state.pages.length);
   if (indices.length === 0) return;
@@ -1173,46 +1235,10 @@ function executeRemovePages() {
   }
 
   closeRemovePagesPopover();
-
-  // If workspace is now empty, render empty state
-  if (state.pages.length === 0) {
-    renderWorkspace();
-    updateSidebarUploadedDocuments();
-    saveSessionDebounced();
-    showToast(`Removed all ${removedCount} pages`, 'success');
-    return;
-  }
-
-  // 2. Direct DOM removal of deleted slots in a single pass (<2ms)
-  const slots = Array.from(els.pageGrid.children);
-  for (const idx of indices) {
-    if (slots[idx]) {
-      slots[idx].remove();
-    }
-  }
   currentMarkedIndices.clear();
 
-  // 3. Fast re-indexing from lowest affected index to end (<3ms)
-  const minAffectedIdx = Math.min(...indices);
-  const remainingSlots = els.pageGrid.children;
-  for (let i = minAffectedIdx; i < remainingSlots.length; i++) {
-    const s = remainingSlots[i];
-    s.dataset.index = i;
-    const c = s.querySelector('.page-card');
-    if (c) {
-      c.dataset.index = i;
-      c.classList.remove('marked-for-deletion');
-      const num = c.querySelector('.card-page-num');
-      if (num) num.textContent = i + 1;
-    }
-    const gutterBtn = s.querySelector('.gutter-add-btn');
-    if (gutterBtn && state.pages[i]) {
-      gutterBtn.title = `Insert blank ${state.pages[i].orientation} page after Page ${i + 1}`;
-    }
-  }
-
-  // 4. Update title display and status bar
-  els.docTitleDisplay.textContent = `Document (${state.pages.length} pages)`;
+  // 2. Clean workspace render
+  renderWorkspace();
   updateSidebarUploadedDocuments();
   updateStatus();
   saveSessionDebounced();
@@ -1300,6 +1326,10 @@ let autoScrollSpeed = 0;
 function startAutoScrollLoop() {
   if (autoScrollRaf !== null) return;
   function step() {
+    if (!isDraggingCard || draggedPageIndex === null) {
+      stopAutoScroll();
+      return;
+    }
     if (autoScrollSpeed !== 0 && els.workspaceScroll) {
       els.workspaceScroll.scrollTop += autoScrollSpeed;
       autoScrollRaf = requestAnimationFrame(step);
@@ -1319,26 +1349,23 @@ function stopAutoScroll() {
 }
 
 function updateAutoScroll(clientY) {
-  if (draggedPageIndex === null || !els.workspaceScroll) {
+  if (!isDraggingCard || draggedPageIndex === null || !els.workspaceScroll) {
     stopAutoScroll();
     return;
   }
 
   const rect = els.workspaceScroll.getBoundingClientRect();
-  const edgeZone = 120;
+  const edgeZone = 70;
 
   if (clientY < rect.top + edgeZone) {
-    // Continuous upward auto-scroll (e.g. from Page 100 towards Page 1)
-    // Non-linear acceleration up to 58 px/frame (~3,500 px/sec) even if cursor moves into toolbar
     const distance = (rect.top + edgeZone) - clientY;
-    const ratio = Math.min(1.8, Math.max(0.15, distance / edgeZone));
-    autoScrollSpeed = -Math.round(8 + ratio * 28);
+    const ratio = Math.min(1.5, Math.max(0.15, distance / edgeZone));
+    autoScrollSpeed = -Math.round(6 + ratio * 20);
     startAutoScrollLoop();
   } else if (clientY > rect.bottom - edgeZone) {
-    // Continuous downward auto-scroll
     const distance = clientY - (rect.bottom - edgeZone);
-    const ratio = Math.min(1.8, Math.max(0.15, distance / edgeZone));
-    autoScrollSpeed = Math.round(8 + ratio * 28);
+    const ratio = Math.min(1.5, Math.max(0.15, distance / edgeZone));
+    autoScrollSpeed = Math.round(6 + ratio * 20);
     startAutoScrollLoop();
   } else {
     autoScrollSpeed = 0;
@@ -1406,11 +1433,16 @@ function createPageSlot(page, index) {
   const actions = document.createElement('div');
   actions.className = 'card-actions';
 
+  const stopActionMousedown = (e) => {
+    e.stopPropagation();
+  };
+
   const rotateBtn = document.createElement('button');
   rotateBtn.className = 'action-pill rotate';
   rotateBtn.title = 'Rotate 90° clockwise';
   rotateBtn.draggable = false;
   rotateBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>';
+  rotateBtn.addEventListener('mousedown', stopActionMousedown);
   rotateBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     const curIdx = parseInt(slot.dataset.index, 10);
@@ -1422,6 +1454,7 @@ function createPageSlot(page, index) {
   editBtn.title = 'Add text or images';
   editBtn.draggable = false;
   editBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+  editBtn.addEventListener('mousedown', stopActionMousedown);
   editBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     openAnnotationDialog(page.id);
@@ -1432,10 +1465,18 @@ function createPageSlot(page, index) {
   removeBtn.title = 'Remove page';
   removeBtn.draggable = false;
   removeBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+  removeBtn.addEventListener('mousedown', stopActionMousedown);
   removeBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     const curIdx = parseInt(slot.dataset.index, 10);
     removePage(curIdx);
+  });
+
+  actions.addEventListener('mouseenter', () => {
+    card.draggable = false;
+  });
+  actions.addEventListener('mouseleave', () => {
+    if (!isDraggingCard) card.draggable = true;
   });
 
   actions.appendChild(rotateBtn);
@@ -1572,6 +1613,9 @@ function createPageSlot(page, index) {
       <line x1="14.2" y1="16.5" x2="18.8" y2="16.5" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
     </svg>
   `;
+  gutterBtn.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+  });
   gutterBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     const curIdx = parseInt(slot.dataset.index, 10);
@@ -1580,6 +1624,10 @@ function createPageSlot(page, index) {
 
   // Butter-Smooth Drag Initiation
   card.addEventListener('dragstart', (e) => {
+    if (e.target.closest('.card-actions') || e.target.closest('.action-pill') || e.target.closest('.gutter-add-btn') || e.target.closest('button')) {
+      e.preventDefault();
+      return;
+    }
     const curIdx = parseInt(slot.dataset.index, 10);
     draggedPageIndex = curIdx;
     isDraggingCard = true;
@@ -1606,15 +1654,7 @@ function createPageSlot(page, index) {
   });
 
   card.addEventListener('dragend', () => {
-    card.classList.remove('dragging');
-    document.body.classList.remove('is-reordering-cards');
-    draggedPageIndex = null;
-    isDraggingCard = false;
-    stopAutoScroll();
-    hideFloatingDropIndicator();
-    if (els.dropOverlay && els.dropOverlay.classList.contains('active')) {
-      els.dropOverlay.classList.remove('active');
-    }
+    cleanupDragState();
   });
 
   slot.appendChild(card);

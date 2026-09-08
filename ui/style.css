@@ -377,9 +377,12 @@ body {
 .workspace-scroll {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px 32px 64px 32px;
   background-color: #f1f5f9;
   position: relative;
+  scroll-behavior: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .drop-overlay {
@@ -396,14 +399,14 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 50;
-  pointer-events: none;
+  pointer-events: none !important;
   opacity: 0;
   transition: opacity 0.15s ease;
 }
 
 .drop-overlay.active {
   opacity: 1;
-  pointer-events: auto;
+  pointer-events: none !important;
 }
 
 .empty-state {
@@ -487,8 +490,7 @@ body.is-reordering-cards .card-actions {
 }
 
 body.is-reordering-cards .gutter-add-btn {
-  pointer-events: none !important;
-  opacity: 0.3 !important;
+  opacity: 0.6;
 }
 
 body.is-reordering-cards .page-card:hover {
@@ -524,7 +526,7 @@ body.is-reordering-cards .page-card:hover {
   position: relative;
   display: flex;
   flex-direction: column;
-  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
+  transition: border-color 0.1s ease, box-shadow 0.1s ease;
   cursor: grab;
   user-select: none;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
